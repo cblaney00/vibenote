@@ -33,6 +33,22 @@ Intro.
 - 2026-10-30: something
 """
 
+ROADMAP = """# Roadmap
+
+## M1 — First dive
+- [x] Greybox interior
+- [ ] Played by hand
+
+## M8 — Blaney's list (2026-10-29)
+Added by Blaney after playing.
+- [x] **Pause menu**: Esc brings up
+      a menu.
+- [ ] **Portholes**: windows to look out of.
+
+## M9 — Lando's list
+- [ ] Lando's thing
+"""
+
 
 class ProjectsTest(unittest.TestCase):
     def setUp(self):
@@ -83,6 +99,18 @@ class ProjectsTest(unittest.TestCase):
     def test_no_list_reads_as_none(self):
         self.make("prin-rpg", "title=prin-rpg\n")
         self.assertIsNone(projects.find_projects(self.base)[0].todo_items())
+
+    def test_his_section_of_a_roadmap(self):
+        self.make("sub-of-seas", "title=sub-of-seas\nkind=game\n", ROADMAP, "docs/roadmap.md")
+        p = projects.find_projects(self.base)[0]
+        self.assertEqual(p.todo_file().name, "roadmap.md")
+        self.assertEqual(p.todo_items(), ["Portholes: windows to look out of."])
+        self.assertEqual(p.done_items(), ["Pause menu: Esc brings up a menu."])
+        p.add_to_todo(["Coral reef"])
+        text = p.todo_file().read_text()
+        self.assertIn("- [ ] Coral reef\n\n## M9", text)
+        self.assertIn("- [ ] Lando's thing", text)
+        self.assertNotIn("Lando's thing", p.todo_items())
 
     def test_placeholder_is_replaced(self):
         self.make("glade", "title=Glade\n", GLADE_STYLE)

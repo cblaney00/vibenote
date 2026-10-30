@@ -2,6 +2,7 @@
 
 import os
 import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,35 +23,77 @@ class Project:
         candidates = [self.path / "docs" / "todo.md"]
         candidates += sorted(self.path.glob("*todo*.md"))
         candidates += sorted((self.path / "docs").glob("*todo*.md"))
-        return next((p for p in candidates if p.is_file()), None)
+        found = next((p for p in candidates if p.is_file()), None)
+        if found:
+            return found
+        # Or a section headed "... Blaney's list" in one of its documents (Sub of Seas keeps
+        # his ideas as "## M8 — Blaney's list" in docs/roadmap.md, among Lando's plans)
+        for f in sorted(self.path.glob("*.md")) + sorted((self.path / "docs").glob("*.md")):
+            try:
+                if re.search(HIS_LIST, f.read_text(), re.I | re.M):
+                    return f
+            except OSError:
+                continue
+        return None
 
-    def _lines(self) -> list[str] | None:
+    def _versions(self) -> list[list[str]]:
+        """The to-do file's lines as it is now, and, for a game shared with lando, also as it is
+        on each of the repo's branches: its folder hops between branches, and an item must not
+        look finished just because the branch on show is one that never had it."""
         f = self.todo_file()
         if not f:
-            return None
+            return []
+        versions = []
         try:
-            return f.read_text().splitlines()
+            versions.append(f.read_text().splitlines())
         except OSError:
-            return None
+            pass
+        if self.shared:
+            rel = f.relative_to(self.path).as_posix()
+            try:
+                branches = subprocess.run(
+                    ["git", "-C", str(self.path), "for-each-ref", "--format=%(refname)",
+                     "refs/heads", "refs/remotes/origin"],
+                    capture_output=True, text=True, timeout=5).stdout.split()
+                for ref in branches:
+                    if ref.endswith("/HEAD"):
+                        continue
+                    out = subprocess.run(["git", "-C", str(self.path), "show", f"{ref}:{rel}"],
+                                         capture_output=True, text=True, timeout=5)
+                    if out.returncode == 0:
+                        versions.append(out.stdout.splitlines())
+            except (OSError, subprocess.SubprocessError):
+                pass
+        return versions
+
+    def _read(self):
+        """(open items, finished items) across every version; None for open when there is no list."""
+        versions = self._versions()
+        if not versions:
+            return None, []
+        whole_file = "todo" in self.todo_file().name.lower()  # a list file with no headings
+        open_items, done = [], []
+        for lines in versions:
+            start, end = _todo_section(lines)
+            if start is None and not whole_file:
+                continue  # e.g. an older branch of the roadmap, from before his list was in it
+            part = lines[start:end] if start is not None else lines
+            for ticked, text in _items(part):
+                _add(done if ticked else open_items, text)
+            d_start, d_end = _section(lines, r"done")
+            if d_start is not None:
+                for _, text in _items(lines[d_start:d_end]):
+                    _add(done, text)
+        open_items = [t for t in open_items if not any(_same(t, d) for d in done)]
+        return open_items, done
 
     def todo_items(self) -> list[str] | None:
-        """What is waiting on its to-do list (unticked items under "To do"). None: no list to read."""
-        lines = self._lines()
-        if lines is None:
-            return None
-        start, end = _todo_section(lines)
-        part = lines[start:end] if start is not None else lines
-        return [text for ticked, text in _items(part) if not ticked]
+        """What is waiting on its to-do list (unticked, under its list heading). None: no list."""
+        return self._read()[0]
 
     def done_items(self) -> list[str]:
-        """What its to-do list says is finished: everything under "Done", plus ticked items."""
-        lines = self._lines() or []
-        start, end = _section(lines, r"done")
-        done = [text for _, text in _items(lines[start:end])] if start is not None else []
-        t_start, t_end = _todo_section(lines)
-        if t_start is not None:
-            done += [text for ticked, text in _items(lines[t_start:t_end]) if ticked]
-        return done
+        """What its to-do list says is finished: ticked items, and everything under "Done"."""
+        return self._read()[1]
 
     def add_to_todo(self, notes: list[str]) -> Path:
         """Put the notes on the bottom of its to-do list, making the file if there is none."""
@@ -83,8 +126,16 @@ class Project:
         return f
 
 
+HIS_LIST = r"^#+ .*\bblaney'?s list\b"
+
+
 def _todo_section(lines):
-    """(first line, end line) of the body under the "## To do" heading, or (None, None)."""
+    """(first line, end line) of his list: under a "... Blaney's list" heading if there is one,
+    else under "## To do"; (None, None) when there is neither."""
+    for i, line in enumerate(lines):
+        if re.match(HIS_LIST, line.strip(), re.I):
+            end = next((j for j in range(i + 1, len(lines)) if lines[j].startswith("#")), len(lines))
+            return i + 1, end
     return _section(lines, r"to[\s-]?do")
 
 
@@ -103,10 +154,20 @@ def _items(lines):
         m = re.match(r"\s{0,3}[-*] (\[( |x|X)\] )?(.*)", line)
         if m:
             text = re.sub(r"^\d{4}-\d\d-\d\d:\s*", "", m.group(3).strip())  # "2026-10-30: ..."
+            text = text.replace("**", "")
             items.append([bool(m.group(2) and m.group(2) != " "), text])
         elif items and line.startswith("    ") and line.strip():
             items[-1][1] += " " + line.strip()
     return [(ticked, text) for ticked, text in items if text]
+
+
+def _same(a, b):
+    return " ".join(a.split()).lower() == " ".join(b.split()).lower()
+
+
+def _add(items, text):
+    if not any(_same(text, t) for t in items):
+        items.append(text)
 
 
 def _field(text, name):

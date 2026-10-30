@@ -49,7 +49,12 @@ each note, like a paper notebook. These were his choices; ask him before changin
   `~/.local/share/vibenote/notes.json` (or the file in `VIBENOTE_DATA`, for testing).
 - `projects.py` — finds the projects (`VIBENOTE_PROJECTS` overrides the folder, for
   testing) and reads/adds to each one's to-do file: `docs/todo.md`, else a `*todo*.md`
-  (R62D's is `r6-todo.md`). New items go at the end of its "## To do" section.
+  (R62D's is `r6-todo.md`), else any doc with a heading containing "Blaney's list" — Sub of
+  Seas keeps his ideas as "## M8 — Blaney's list" in `docs/roadmap.md`, among Lando's
+  milestones, which must never be read as his. New items go at the end of that section
+  (else "## To do"). For a shared game the list is read from the working tree *and* every
+  local/origin branch (its folder hops branches): open = open somewhere and ticked nowhere;
+  branches whose copy lacks his heading are skipped. `**bold**` is stripped from items.
 - `sender.py` — finds a project's open Claude chat the way the Glade's Claude panel does
   (`~/.local/state/glade/claude/<pid>.json` says each chat's folder; `kitty @ ls` finds its
   window) and types the message in with bracketed paste, then Enter.
