@@ -64,6 +64,9 @@ class VibeNote(tk.Tk):
         self._build_sidebar()
         self._build_page()
         self.sync()
+        self._sort()
+        waiting = [p for p in self.projects if self.store.get(p.slug)]
+        self.current = (waiting or self.projects or [None])[0]
         self.refresh()
         self.after(10_000, self._reread_todo)
         self.after(200, self._float)
@@ -172,9 +175,14 @@ class VibeNote(tk.Tk):
         self._draw_sidebar()
         self._draw_page(keep_scroll)
 
+    def _sort(self):
+        """Longest lists on top (his ask): every note it has ever had, waiting, sent and done."""
+        self.projects.sort(key=lambda p: (-len(self.store.all(p.slug)), p.title.lower()))
+
     def _draw_sidebar(self):
         for w in self.list_box.winfo_children():
             w.destroy()
+        self._sort()
         for p in self.projects:
             picked = p is self.current
             waiting = len(self.store.get(p.slug))
