@@ -10,50 +10,34 @@ from store import Store  # noqa: E402
 class StoreTest(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.path = Path(self.dir.name) / "lists.json"
+        self.path = Path(self.dir.name) / "notes.json"
 
     def tearDown(self):
         self.dir.cleanup()
 
-    def test_starts_with_one_list(self):
+    def test_notes_survive_a_restart(self):
         s = Store(self.path)
-        self.assertEqual([lst["name"] for lst in s.lists], ["My list"])
-
-    def test_tasks_survive_a_restart(self):
-        s = Store(self.path)
-        lid = s.lists[0]["id"]
-        a = s.add_task(lid, "  Buy milk ")
-        s.add_task(lid, "Walk dog")
-        s.toggle_task(lid, a["id"])
+        s.add("r62d", "  smaller   bullets ")
+        s.add("r62d", "desert map")
+        s.add("sub-of-seas", "torpedo sound")
         again = Store(self.path)
-        tasks = again.get_list(lid)["tasks"]
-        self.assertEqual([t["text"] for t in tasks], ["Buy milk", "Walk dog"])
-        self.assertEqual([t["done"] for t in tasks], [True, False])
+        self.assertEqual([n["text"] for n in again.get("r62d")], ["smaller bullets", "desert map"])
+        self.assertEqual(len(again.get("sub-of-seas")), 1)
+        self.assertEqual(again.get("glade"), [])
 
-    def test_blank_task_is_ignored(self):
-        s = Store(self.path)
-        self.assertIsNone(s.add_task(s.lists[0]["id"], "   "))
+    def test_blank_note_is_ignored(self):
+        self.assertIsNone(Store(self.path).add("r62d", "   "))
 
-    def test_clear_done_and_delete(self):
+    def test_edit_move_delete(self):
         s = Store(self.path)
-        lid = s.lists[0]["id"]
-        a = s.add_task(lid, "a")
-        b = s.add_task(lid, "b")
-        s.add_task(lid, "c")
-        s.toggle_task(lid, a["id"])
-        s.clear_done(lid)
-        s.delete_task(lid, b["id"])
-        self.assertEqual([t["text"] for t in s.get_list(lid)["tasks"]], ["c"])
-
-    def test_lists(self):
-        s = Store(self.path)
-        new = s.add_list("Shopping")
-        s.rename_list(new["id"], "Groceries")
-        s.rename_list(new["id"], "  ")
-        self.assertEqual(s.get_list(new["id"])["name"], "Groceries")
-        s.delete_list(s.lists[0]["id"])
-        s.delete_list(new["id"])
-        self.assertEqual(len(s.lists), 1)  # never left with no list at all
+        a = s.add("r62d", "a")
+        b = s.add("r62d", "b")
+        s.edit("r62d", a["id"], "a2")
+        s.move("r62d", b["id"], "glade")
+        self.assertEqual([n["text"] for n in s.get("r62d")], ["a2"])
+        self.assertEqual([n["text"] for n in s.get("glade")], ["b"])
+        s.edit("r62d", a["id"], "  ")  # emptied = deleted
+        self.assertEqual(s.get("r62d"), [])
 
 
 if __name__ == "__main__":
