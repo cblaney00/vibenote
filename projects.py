@@ -24,22 +24,33 @@ class Project:
         candidates += sorted((self.path / "docs").glob("*todo*.md"))
         return next((p for p in candidates if p.is_file()), None)
 
-    def todo_items(self) -> list[str]:
-        """What is waiting on its to-do list (unticked items under "To do")."""
+    def _lines(self) -> list[str] | None:
         f = self.todo_file()
         if not f:
-            return []
+            return None
         try:
-            lines = f.read_text().splitlines()
+            return f.read_text().splitlines()
         except OSError:
-            return []
+            return None
+
+    def todo_items(self) -> list[str] | None:
+        """What is waiting on its to-do list (unticked items under "To do"). None: no list to read."""
+        lines = self._lines()
+        if lines is None:
+            return None
         start, end = _todo_section(lines)
-        items = []
-        for line in lines[start:end] if start is not None else lines:
-            m = re.match(r"\s*- \[ \]\s+(.*)", line)
-            if m:
-                items.append(m.group(1).strip())
-        return items
+        part = lines[start:end] if start is not None else lines
+        return [text for ticked, text in _items(part) if not ticked]
+
+    def done_items(self) -> list[str]:
+        """What its to-do list says is finished: everything under "Done", plus ticked items."""
+        lines = self._lines() or []
+        start, end = _section(lines, r"done")
+        done = [text for _, text in _items(lines[start:end])] if start is not None else []
+        t_start, t_end = _todo_section(lines)
+        if t_start is not None:
+            done += [text for ticked, text in _items(lines[t_start:t_end]) if ticked]
+        return done
 
     def add_to_todo(self, notes: list[str]) -> Path:
         """Put the notes on the bottom of its to-do list, making the file if there is none."""
@@ -74,11 +85,28 @@ class Project:
 
 def _todo_section(lines):
     """(first line, end line) of the body under the "## To do" heading, or (None, None)."""
+    return _section(lines, r"to[\s-]?do")
+
+
+def _section(lines, name):
     for i, line in enumerate(lines):
-        if re.match(r"#+\s*to[\s-]?do\b", line.strip(), re.I):
+        if re.match(rf"#+\s*{name}\b", line.strip(), re.I):
             end = next((j for j in range(i + 1, len(lines)) if lines[j].startswith("#")), len(lines))
             return i + 1, end
     return None, None
+
+
+def _items(lines):
+    """(ticked, text) for each "- " item; indented lines after one carry it on."""
+    items = []
+    for line in lines:
+        m = re.match(r"\s{0,3}[-*] (\[( |x|X)\] )?(.*)", line)
+        if m:
+            text = re.sub(r"^\d{4}-\d\d-\d\d:\s*", "", m.group(3).strip())  # "2026-10-30: ..."
+            items.append([bool(m.group(2) and m.group(2) != " "), text])
+        elif items and line.startswith("    ") and line.strip():
+            items[-1][1] += " " + line.strip()
+    return [(ticked, text) for ticked, text in items if text]
 
 
 def _field(text, name):

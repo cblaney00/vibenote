@@ -71,6 +71,19 @@ class ProjectsTest(unittest.TestCase):
         self.assertIn("- [ ] Fourth idea\n\n## Done", text)
         self.assertIn("- [x] Old thing", text)
 
+    def test_reads_finished_items(self):
+        self.make("r62d", "title=R62D\n", R62D_STYLE + "- [x] Long one\n      carried on here.\n",
+                  "r6-todo.md")
+        self.make("glade", "title=Glade\n", GLADE_STYLE)
+        r, g = sorted(projects.find_projects(self.base), key=lambda p: p.slug, reverse=True)
+        self.assertEqual(r.done_items(), ["Old thing", "Long one carried on here."])
+        self.assertEqual(g.done_items(), ["something"])
+        self.assertEqual(g.todo_items(), [])
+
+    def test_no_list_reads_as_none(self):
+        self.make("prin-rpg", "title=prin-rpg\n")
+        self.assertIsNone(projects.find_projects(self.base)[0].todo_items())
+
     def test_placeholder_is_replaced(self):
         self.make("glade", "title=Glade\n", GLADE_STYLE)
         p = projects.find_projects(self.base)[0]

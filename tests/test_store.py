@@ -39,6 +39,39 @@ class StoreTest(unittest.TestCase):
         s.edit("r62d", a["id"], "  ")  # emptied = deleted
         self.assertEqual(s.get("r62d"), [])
 
+    def test_first_look_imports_the_whole_list(self):
+        s = Store(self.path)
+        self.assertTrue(s.sync("r62d", ["Small bullets", "Desert map"], ["Headshots", "Barricades"]))
+        self.assertEqual([n["text"] for n in s.get("r62d", "sent")], ["Small bullets", "Desert map"])
+        self.assertEqual([n["text"] for n in s.get("r62d", "done")], ["Headshots", "Barricades"])
+        self.assertNotIn("sent", s.get("r62d", "sent")[0])  # no made-up date
+        # Looking again changes nothing, and finished items are not brought in twice
+        self.assertFalse(Store(self.path).sync("r62d", ["Small bullets", "Desert map"],
+                                               ["Headshots", "Barricades"]))
+
+    def test_sent_then_finished(self):
+        s = Store(self.path)
+        s.sync("r62d", [], [])
+        a = s.add("r62d", "Louder stairs")
+        s.mark_sent("r62d", [a["id"]])
+        self.assertFalse(s.sync("r62d", ["louder  stairs"], []))  # still on the list
+        self.assertTrue(s.sync("r62d", [], []))                   # Claude finished it
+        self.assertEqual(s.get("r62d", "done")[0]["text"], "Louder stairs")
+        self.assertIn("done", s.get("r62d", "done")[0])
+
+    def test_added_in_a_chat_counts_as_sent(self):
+        s = Store(self.path)
+        s.sync("glade", [], [])
+        s.sync("glade", ["Squid hats"], [])
+        self.assertEqual(s.get("glade", "sent")[0]["text"], "Squid hats")
+        self.assertIn("sent", s.get("glade", "sent")[0])
+
+    def test_missing_list_finishes_nothing(self):
+        s = Store(self.path)
+        s.sync("sub-of-seas", ["Sonar"], [])
+        self.assertFalse(s.sync("sub-of-seas", None, []))
+        self.assertEqual(len(s.get("sub-of-seas", "sent")), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

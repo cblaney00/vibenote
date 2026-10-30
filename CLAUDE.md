@@ -13,8 +13,16 @@ VibeNote is insideabush's idea pad for his other projects (R62D, Sub of Seas, th
 in its own floating desktop window. The sidebar lists every project in `~/projects` (any
 folder with a `.vibe-project`, except VibeNote itself), with how many notes are waiting.
 He picks a project, types notes into it, can edit (click), move to another project
-(Move / right-click) or delete (×) them. Under his notes it shows what is already on that
-project's to-do list file, re-read every 10 s as Claude ticks things off.
+(Move / right-click) or delete (×) them.
+
+**History** (his ask: "a history of all notes sent and not sent"): every note is kept with a
+status — *waiting* (not sent), *sent* (on the project's to-do list), *done* (gone from the
+list, so Claude finished it; dated). The first time VibeNote sees a project it imports that
+project's whole to-do file, finished items included (`Store.sync`, `imported` in notes.json).
+After that the to-do files are re-read every 10 s: an item VibeNote has not seen (added in a
+chat) becomes *sent*, a sent one that is no longer listed becomes *done*. A project whose
+to-do file is missing (e.g. on another branch) finishes nothing. Matching is by text, so if
+Claude rewords an open item it shows as one done and one new sent.
 
 When a batch is ready he presses **Send N notes to Claude**: the notes go on the bottom of
 the project's to-do list file (made as `docs/todo.md` if it has none) **and** are typed into

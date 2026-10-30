@@ -5,6 +5,7 @@ Writing and sorting notes never needs Claude; only the Send button talks to it.
 
 import os
 import subprocess
+from datetime import date
 import threading
 import tkinter as tk
 from tkinter import font as tkfont
@@ -26,6 +27,14 @@ ACCENT_DARK = "#8f3f20"
 FIELD = "#fffaf0"
 
 SERIF = "Georgia"
+
+
+def nice_date(iso):
+    """"2026-10-30" -> "30 Oct"."""
+    try:
+        return date.fromisoformat(iso).strftime("%-d %b")
+    except ValueError:
+        return iso
 
 
 class VibeNote(tk.Tk):
@@ -54,6 +63,7 @@ class VibeNote(tk.Tk):
 
         self._build_sidebar()
         self._build_page()
+        self.sync()
         self.refresh()
         self.after(10_000, self._reread_todo)
         self.after(200, self._float)
@@ -130,7 +140,7 @@ class VibeNote(tk.Tk):
         # Scrolling area for the notes and the project's to-do list
         holder = tk.Frame(body, bg=PAPER)
         holder.pack(fill="both", expand=True)
-        self.canvas = tk.Canvas(holder, bg=PAPER, highlightthickness=0)
+        self.canvas = tk.Canvas(holder, bg=PAPER, highlightthickness=0, yscrollincrement=24)
         self.canvas.pack(side="left", fill="both", expand=True)
         self.notes_frame = tk.Frame(self.canvas, bg=PAPER)
         self._win = self.canvas.create_window(0, 0, window=self.notes_frame, anchor="nw")
@@ -144,7 +154,7 @@ class VibeNote(tk.Tk):
 
     def _scroll(self, steps):
         if self.notes_frame.winfo_height() > self.canvas.winfo_height():
-            self.canvas.yview_scroll(steps, "units")
+            self.canvas.yview_scroll(steps * 3, "units")
 
     def _show_placeholder(self):
         if not self.entry.get():
@@ -191,12 +201,15 @@ class VibeNote(tk.Tk):
             return
 
         notes = self.store.get(p.slug)
-        todo = p.todo_items()
+        sent = self.store.get(p.slug, "sent")
+        done = self.store.get(p.slug, "done")
+        # Newest first: finished since VibeNote started watching, then the imported ones
+        # in the order the to-do file had them (its newest are at the top)
+        done = sorted((n for n in done if n.get("done")), key=lambda n: n["done"],
+                      reverse=True) + [n for n in done if not n.get("done")]
         self.title_label.configure(text=p.title)
-        bits = [f"{len(notes)} note{'s' * (len(notes) != 1)} waiting to send"]
-        if todo:
-            bits.append(f"{len(todo)} on its to-do list")
-        self.count_label.configure(text=" · ".join(bits))
+        self.count_label.configure(
+            text=f"{len(notes)} waiting · {len(sent)} sent · {len(done)} done")
 
         if not notes:
             tk.Label(self.notes_frame, text="No notes waiting. Write one above.",
@@ -204,11 +217,14 @@ class VibeNote(tk.Tk):
         for note in notes:
             self._draw_note(note)
 
-        if todo:
-            tk.Label(self.notes_frame, text="Already on its to-do list", font=self.f_head,
-                     bg=PAPER, fg=FADED_INK, anchor="w").pack(fill="x", pady=(26, 4))
-            for item in todo:
-                self._draw_todo(item)
+        if sent:
+            self._heading(f"Sent: on its to-do list, waiting for Claude ({len(sent)})")
+            for note in sent:
+                self._draw_history(note)
+        if done:
+            self._heading(f"Done ({len(done)})")
+            for note in done:
+                self._draw_history(note)
 
         if self.sending is None:
             n = len(notes)
@@ -261,21 +277,39 @@ class VibeNote(tk.Tk):
         remove.bind("<Enter>", lambda e: remove.configure(fg=ACCENT), add="+")
         move.bind("<Enter>", lambda e: move.configure(fg=ACCENT), add="+")
 
-    def _draw_todo(self, item):
+    def _heading(self, text):
+        tk.Label(self.notes_frame, text=text, font=self.f_head, bg=PAPER, fg=FADED_INK,
+                 anchor="w").pack(fill="x", pady=(26, 4))
+
+    def _draw_history(self, note):
+        done = note["status"] == "done"
         line = tk.Frame(self.notes_frame, bg=PAPER)
         line.pack(fill="x", pady=2)
-        tk.Label(line, text="☐", font=self.f_todo, bg=PAPER, fg=FADED_INK).pack(
-            side="left", padx=(2, 8), anchor="n")
-        text = tk.Label(line, text=item, font=self.f_todo, bg=PAPER, fg=FADED_INK, anchor="w",
-                        justify="left")
+        tk.Label(line, text="☑" if done else "☐", font=self.f_todo, bg=PAPER,
+                 fg=ACCENT if done else FADED_INK).pack(side="left", padx=(2, 8), anchor="n")
+        when = note.get("done") if done else note.get("sent")
+        if when:
+            tk.Label(line, text=nice_date(when), font=self.f_small, bg=PAPER,
+                     fg=FADED_INK).pack(side="right", padx=(10, 4), anchor="n")
+        text = tk.Label(line, text=note["text"], font=self.f_todo, bg=PAPER, fg=FADED_INK,
+                        anchor="w", justify="left")
         text.pack(side="left", fill="x", expand=True)
         text.bind("<Configure>", lambda e: text.configure(wraplength=max(e.width - 12, 50)))
+
+    def sync(self):
+        """Bring the history in line with every project's to-do list. Returns whether it changed."""
+        changed = False
+        for p in self.projects:
+            done = p.done_items() if p.slug not in self.store.imported else []
+            changed |= self.store.sync(p.slug, p.todo_items(), done)
+        return changed
 
     def _reread_todo(self):
         """Claude ticks things off the to-do lists while he works; keep up with it."""
         f = self.focus_get()
-        if not (isinstance(f, tk.Entry) and f is not self.entry):  # not while a note is being edited
-            self._draw_page(keep_scroll=True)
+        editing = isinstance(f, tk.Entry) and f is not self.entry
+        if not editing and self.sending is None and self.sync():
+            self.refresh(keep_scroll=True)
         self.after(10_000, self._reread_todo)
 
     def say(self, text, colour=FADED_INK):
@@ -371,8 +405,7 @@ class VibeNote(tk.Tk):
         how, msg = self.sending
         self.sending = None
         if how == "ok":
-            for note_id in ids:
-                self.store.delete(project.slug, note_id)
+            self.store.mark_sent(project.slug, ids)
             self.say(f"✓ {msg}", ACCENT)
         else:
             self.say(msg + " Your notes are still here.", ACCENT)
