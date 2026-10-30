@@ -9,7 +9,6 @@ from datetime import date
 import threading
 import tkinter as tk
 from tkinter import font as tkfont
-from tkinter import messagebox
 
 import projects
 import sender
@@ -127,15 +126,14 @@ class VibeNote(tk.Tk):
         self.entry.bind("<FocusIn>", lambda e: self._hide_placeholder())
         self.entry.bind("<FocusOut>", lambda e: self._show_placeholder())
 
-        # The bottom bar: what happened, and the Send button
+        # The bottom bar: what happened, Send (onto the to-do list, no tokens) and Work
+        # (Claude starts on the list, uses tokens: he has to agree first)
         bottom = tk.Frame(body, bg=PAPER)
         bottom.pack(side="bottom", fill="x", pady=(10, 0))
-        self.send_btn = tk.Label(bottom, font=self.f_button, bg=ACCENT, fg=FIELD,
-                                 padx=16, pady=8, cursor="hand2")
-        self.send_btn.pack(side="right")
-        self.send_btn.bind("<Button-1>", lambda e: self.send())
-        self.send_btn.bind("<Enter>", lambda e: self.send_btn.configure(bg=ACCENT_DARK))
-        self.send_btn.bind("<Leave>", lambda e: self.send_btn.configure(bg=ACCENT))
+        self.work_btn = Button(bottom, self.f_button, self.work, main=True)
+        self.work_btn.pack(side="right")
+        self.send_btn = Button(bottom, self.f_button, self.send, main=False)
+        self.send_btn.pack(side="right", padx=(0, 10))
         self.status = tk.Label(bottom, font=self.f_small, bg=PAPER, fg=FADED_INK, anchor="w",
                                justify="left")
         self.status.pack(side="left", fill="x", expand=True)
@@ -206,6 +204,7 @@ class VibeNote(tk.Tk):
             self.title_label.configure(text="No projects yet")
             self.count_label.configure(text="Start one with vibe, and it shows up here")
             self.send_btn.pack_forget()
+            self.work_btn.pack_forget()
             return
 
         notes = self.store.get(p.slug)
@@ -236,10 +235,9 @@ class VibeNote(tk.Tk):
 
         if self.sending is None:
             n = len(notes)
-            self.send_btn.configure(text=f"Send {n} note{'s' * (n != 1)} to Claude  →"
-                                    if n else "Send to Claude  →")
-            self.send_btn.configure(bg=ACCENT if n else RULE, fg=FIELD if n else FADED_INK,
-                                    cursor="hand2" if n else "arrow")
+            self.send_btn.set(f"Send {n} note{'s' * (n != 1)} to its list" if n else "Send",
+                              enabled=bool(n))
+            self.work_btn.set("Work  →", enabled=bool(n or sent))
         if not keep_scroll:
             self.canvas.yview_moveto(0)
 
@@ -381,43 +379,131 @@ class VibeNote(tk.Tk):
         self.refresh(keep_scroll=True)
 
     def send(self):
+        """Send: his waiting notes go on the bottom of the project's to-do list. No tokens."""
         p = self.current
         notes = self.store.get(p.slug) if p else []
         if not notes or self.sending is not None:
             return
-        n = len(notes)
-        if not messagebox.askyesno(
-                "Send to Claude",
-                f"Send {n} note{'s' * (n != 1)} to {p.title}'s Claude?\n\n"
-                "They go on the bottom of its to-do list, and Claude starts on them. "
-                "If no Claude is open for it, a new terminal opens.", parent=self):
+        try:
+            todo = sender.add_to_list(p, [n["text"] for n in notes])
+        except OSError as err:
+            self.say(f"Couldn't add them to the list: {err.strerror or err}. "
+                     "Your notes are still here.", ACCENT)
             return
-        texts = [note["text"] for note in notes]
+        self.store.mark_sent(p.slug, [n["id"] for n in notes])
+        n = len(notes)
+        self.say(f"✓ {n} note{'s' * (n != 1)} added to {todo.name}", ACCENT)
+        self.refresh(keep_scroll=True)
+
+    def work(self):
+        """Work: the project's Claude starts on its to-do list, after he agrees to use tokens."""
+        p = self.current
+        if p is None or self.sending is not None:
+            return
+        notes = self.store.get(p.slug)
+        sent = self.store.get(p.slug, "sent")
+        if not notes and not sent:
+            return
+        total = len(sent) + len(notes)
+        extra = (f", including your {len(notes)} new note{'s' * (len(notes) != 1)}, which get "
+                 "sent first" if notes else "")
+        if not TokenWarning(self, p.title, total, extra).agreed:
+            self.say("Nothing sent to Claude.")
+            return
+        self.send()
+        new = [n["text"] for n in notes]
         self.sending = "…"
-        self.send_btn.configure(text="Sending…", bg=RULE, fg=FADED_INK)
-        self.say("")
+        self.work_btn.set("Starting…", enabled=False)
 
-        def work():
+        def go():
             try:
-                self.sending = ("ok", sender.send(p, texts))
+                self.sending = ("ok", sender.start_work(p, new))
             except OSError as err:
-                self.sending = ("fail", f"Couldn't send: {err.strerror or err}")
+                self.sending = ("fail", f"Couldn't reach Claude: {err.strerror or err}")
 
-        threading.Thread(target=work, daemon=True).start()
-        self._wait_for_send(p, [note["id"] for note in notes])
+        threading.Thread(target=go, daemon=True).start()
+        self._wait_for_work()
 
-    def _wait_for_send(self, project, ids):
+    def _wait_for_work(self):
         if self.sending == "…":
-            self.after(150, self._wait_for_send, project, ids)
+            self.after(150, self._wait_for_work)
             return
         how, msg = self.sending
         self.sending = None
-        if how == "ok":
-            self.store.mark_sent(project.slug, ids)
-            self.say(f"✓ {msg}", ACCENT)
-        else:
-            self.say(msg + " Your notes are still here.", ACCENT)
+        self.say(f"✓ {msg}" if how == "ok" else msg, ACCENT)
         self.refresh(keep_scroll=True)
+
+
+class Button(tk.Label):
+    """A flat paper-style button. main: filled brick red; otherwise outlined."""
+
+    def __init__(self, parent, font, command, main):
+        self.main = main
+        self.enabled = True
+        super().__init__(parent, font=font, padx=16, pady=7, highlightthickness=1)
+        self.bind("<Button-1>", lambda e: self.enabled and command())
+        self.bind("<Enter>", lambda e: self._paint(hover=True))
+        self.bind("<Leave>", lambda e: self._paint())
+        self._paint()
+
+    def set(self, text, enabled=True):
+        self.enabled = enabled
+        self.configure(text=text)
+        self._paint()
+
+    def _paint(self, hover=False):
+        hover = hover and self.enabled
+        if not self.enabled:
+            bg, fg, edge = RULE, FADED_INK, RULE
+        elif self.main:
+            bg, fg, edge = (ACCENT_DARK if hover else ACCENT), FIELD, ACCENT_DARK
+        else:
+            bg, fg, edge = (SIDEBAR if hover else FIELD), ACCENT, ACCENT
+        self.configure(bg=bg, fg=fg, highlightbackground=edge, highlightcolor=edge,
+                       cursor="hand2" if self.enabled else "arrow")
+
+
+class TokenWarning(tk.Toplevel):
+    """Asks him to agree before Work uses his Claude tokens. .agreed says what he chose."""
+
+    def __init__(self, app, title, total, extra):
+        super().__init__(app, bg=PAPER, padx=28, pady=22)
+        self.agreed = False
+        self.title("This uses your tokens")
+        self.transient(app)
+        self.resizable(False, False)
+
+        tk.Label(self, text="⚠  This will use your Claude tokens", font=app.f_side_picked,
+                 bg=PAPER, fg=ACCENT, anchor="w").pack(fill="x")
+        tk.Label(self, text=f"{title}'s Claude will start working through its to-do list "
+                            f"({total} item{'s' * (total != 1)}{extra}). It keeps going "
+                            "until the list is done or you stop it, using your tokens as it "
+                            "works. If no Claude chat is open for it, a new terminal opens.",
+                 font=app.f_todo, bg=PAPER, fg=INK, justify="left", wraplength=420,
+                 anchor="w").pack(fill="x", pady=(10, 18))
+
+        row = tk.Frame(self, bg=PAPER)
+        row.pack(fill="x")
+        agree = Button(row, app.f_button, self._agree, main=True)
+        agree.set("I agree, start work")
+        agree.pack(side="right")
+        cancel = Button(row, app.f_button, self.destroy, main=False)
+        cancel.set("Cancel")
+        cancel.pack(side="right", padx=(0, 10))
+
+        self.bind("<Escape>", lambda e: self.destroy())
+        self.update_idletasks()
+        x = app.winfo_rootx() + (app.winfo_width() - self.winfo_width()) // 2
+        y = app.winfo_rooty() + (app.winfo_height() - self.winfo_height()) // 3
+        self.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+        self.wait_visibility()
+        self.grab_set()
+        cancel.focus_set()
+        app.wait_window(self)
+
+    def _agree(self):
+        self.agreed = True
+        self.destroy()
 
 
 if __name__ == "__main__":

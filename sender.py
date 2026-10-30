@@ -1,4 +1,5 @@
-"""Getting a batch of notes to a project's Claude: typed into its open chat, or a new chat opened.
+"""Send (notes onto a project's to-do list) and Work (its Claude starts on that list: its open
+chat, or a new chat opened).
 
 Finding the chat works like the Glade's Claude panel (glade/claude_panel.py): every Claude chat
 writes ~/.local/state/glade/claude/<pid>.json saying which folder it works in, and the kitty
@@ -19,11 +20,22 @@ STATE = Path.home() / ".local/state/glade/claude"
 OUTBOX = Path.home() / ".local/state/vibenote"
 
 
-def message_for(project: Project, notes: list[str], todo: Path) -> str:
+def work_message(project: Project, todo: Path, items: list[str], new: list[str]) -> str:
+    """What Work types into the chat: the list, and how to get through it efficiently (his ask)."""
     where = todo.relative_to(project.path)
-    lines = [f"New notes from VibeNote for {project.title}, in my words. "
-             f"They are also on the bottom of {where} now. Please work on them:", ""]
-    lines += [f"{i}. {n}" for i, n in enumerate(notes, 1)]
+    lines = [f"Please work through my to-do list for {project.title} ({where}). "
+             "Do it in the most efficient way:",
+             "- First read the whole list and plan the order yourself. Group items that touch "
+             "the same part of the code so each part is opened, changed and tested once; do "
+             "small items in the same pass as related bigger ones.",
+             "- If any items need me to decide how something looks or feels, ask me about all "
+             "of them together at the start, then carry on without stopping for each one.",
+             "- Don't redo work or re-read things you already know; keep your messages to me short.",
+             "- Tick each item off as it's finished, the way the list's own rules say.",
+             "", "What is on it now:"]
+    lines += [f"{i}. {t}" for i, t in enumerate(items, 1)]
+    if new:
+        lines += ["", f"The last {len(new)} I just added from VibeNote, in my words."]
     return "\n".join(lines)
 
 
@@ -135,12 +147,19 @@ def open_new_chat(project: Project, text: str):
         stderr=subprocess.DEVNULL)
 
 
-def send(project: Project, notes: list[str]) -> str:
-    """Add the notes to the project's to-do list and hand them to its Claude. Says what happened."""
-    todo = project.add_to_todo(notes)
-    text = message_for(project, notes, todo)
+def add_to_list(project: Project, notes: list[str]) -> Path:
+    """Send: the notes go on the bottom of the project's to-do list. No Claude, no tokens."""
+    return project.add_to_todo(notes)
+
+
+def start_work(project: Project, new: list[str]) -> str:
+    """Work (uses his tokens; he has agreed by now): its Claude starts on the to-do list, in the
+    open chat if there is one, else a new one. Says what happened."""
+    todo = project.todo_file()
+    items = project.todo_items() or []
+    text = work_message(project, todo, items, new)
     pid = open_chat_pid(project)
     if pid and type_into_chat(pid, text):
-        return f"Sent to {project.title}'s Claude"
+        return f"{project.title}'s Claude is on it"
     open_new_chat(project, text)
     return f"Opened a new Claude terminal for {project.title}"

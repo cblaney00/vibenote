@@ -26,15 +26,22 @@ chat) becomes *sent*, a sent one that is no longer listed becomes *done*. A proj
 to-do file is missing (e.g. on another branch) finishes nothing. Matching is by text, so if
 Claude rewords an open item it shows as one done and one new sent.
 
-When a batch is ready he presses **Send N notes to Claude**: the notes go on the bottom of
-the project's to-do list file (made as `docs/todo.md` if it has none) **and** are typed into
-that project's open Claude chat. If no chat is open, a new kitty terminal opens Claude on the
-project (his last chat, or a fresh one) with the notes as its first message. His picks
-(2026-10-30): he chooses the project himself (no guessing), Send does both, open a chat if
-none, the window floats freely.
+Two buttons (his ask, 2026-10-30):
+- **Send** only updates the project's to-do list: the waiting notes go on the bottom of it
+  (made as `docs/todo.md` if it has none) and become *sent*. No Claude, no tokens.
+- **Work** has the project's Claude start on its to-do list (sending any waiting notes
+  first). It always shows a warning that this uses his Claude tokens, and nothing happens
+  unless he presses "I agree, start work". The message (`sender.work_message`) lists what is
+  open and asks Claude to work "in the most efficient way" (his words): plan the order, group
+  items touching the same code, ask all look-and-feel questions at once up front, no redoing
+  work, short messages. It goes into the project's open chat; if none is open, a new kitty
+  terminal opens Claude on the project (his last chat, or a fresh one) with it as the first
+  message.
+
+Earlier picks: he chooses the project for each note himself (no guessing); the window floats freely.
 
 **It must work without Claude** (his ask): writing and sorting notes never uses Claude; only
-Send does, and even then the to-do file gets them first. He can open it from the app menu
+Work does, behind the token warning. He can open it from the app menu
 (`~/.local/share/applications/vibenote.desktop` → `run.sh`), no Claude needed.
 
 Look: **warm paper** — cream page, a slightly darker cream sidebar, dark brown ink,
