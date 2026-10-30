@@ -93,3 +93,8 @@ Screenshots: `xvfb-run`/`xdotool` are not on PATH here; borrow them with
 and point `VIBENOTE_DATA`/`VIBENOTE_PROJECTS` at scratch copies. `screenshots/` is gitignored.
 On his screen, run it as him with his session's DISPLAY/WAYLAND_DISPLAY/XDG_RUNTIME_DIR/
 HYPRLAND_INSTANCE_SIGNATURE (copy them from one of his processes' `/proc/<pid>/environ`).
+
+GitHub: **github.com/cblaney00/vibenote** (public, his pick, 2026-10-30). Push `main` after
+every commit — that push is the backup. Until the config packages it, it opens from his app
+menu via `~/.local/share/applications/vibenote.desktop` → `run.sh` (made by hand from here;
+drop it once the packaged app has its own menu entry).
