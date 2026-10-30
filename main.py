@@ -27,7 +27,6 @@ ACCENT_DARK = "#d58a63"     # main button when the mouse is on it
 MARGIN = "#5e3a2a"          # the notebook margin line, kept dim
 FIELD = "#2a231d"           # text boxes
 WORK_GREEN = "#8ea36b"      # the Work tick, so it never looks like the Send tick
-TICK_COL = 56           # width of each tick column, in pixels
 
 SERIF = "Georgia"
 
@@ -62,6 +61,11 @@ class VibeNote(tk.Tk):
         self.f_note = tkfont.Font(family=SERIF, size=14)
         self.f_todo = tkfont.Font(family=SERIF, size=12)
         self.f_box = tkfont.Font(family="DejaVu Sans", size=15)
+        # Tick columns sized from the text itself: his screen draws text ~1/3 bigger than
+        # a plain one, and fixed pixel sizes cut the ticks off there
+        self.tick_w = max(self.f_head.measure("Work"), self.f_box.measure("☑")) + 20
+        self.tick_h = self.f_box.metrics("linespace") + 4
+        self.head_h = self.f_head.metrics("linespace") + 4
         self.f_small = tkfont.Font(family=SERIF, size=11, slant="italic")
         self.f_button = tkfont.Font(family=SERIF, size=13, weight="bold")
 
@@ -74,6 +78,25 @@ class VibeNote(tk.Tk):
         self.refresh()
         self.after(10_000, self._reread_todo)
         self.after(200, self._float)
+        self._size = None
+        self._redraw_soon = None
+        self.bind("<Configure>", self._resized)
+
+    def _resized(self, event):
+        """On his desktop, parts of the page were left undrawn after the window changed size
+        (the ticks looked cut off), so redraw the whole page once the size settles."""
+        if event.widget is not self or (event.width, event.height) == self._size:
+            return
+        self._size = (event.width, event.height)
+        if self._redraw_soon:
+            self.after_cancel(self._redraw_soon)
+        self._redraw_soon = self.after(150, self._redraw)
+
+    def _redraw(self):
+        self._redraw_soon = None
+        f = self.focus_get()
+        if not (isinstance(f, tk.Entry) and f is not self.entry):  # not while editing a note
+            self.refresh(keep_scroll=True)
 
     # --- the window floats freely (his pick) ------------------------------
 
@@ -299,7 +322,7 @@ class VibeNote(tk.Tk):
         row.pack(fill="x", pady=(6 if top else 26, 4))
         if notes:
             for which, colour, shown in (("work", WORK_GREEN, True), ("send", ACCENT, send)):
-                cell = tk.Frame(row, bg=PAPER, width=TICK_COL, height=20)
+                cell = tk.Frame(row, bg=PAPER, width=self.tick_w, height=self.head_h)
                 cell.pack(side="right")
                 cell.pack_propagate(False)
                 if shown:
@@ -312,7 +335,7 @@ class VibeNote(tk.Tk):
 
     def _tick_cell(self, parent, note, which):
         """One tick box in the "send" or "work" column; None draws an empty cell."""
-        cell = tk.Frame(parent, bg=PAPER, width=TICK_COL, height=26)
+        cell = tk.Frame(parent, bg=PAPER, width=self.tick_w, height=self.tick_h)
         cell.pack(side="right", anchor="n")
         cell.pack_propagate(False)
         if note is None:
