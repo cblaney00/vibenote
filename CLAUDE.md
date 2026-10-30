@@ -98,3 +98,11 @@ GitHub: **github.com/cblaney00/vibenote** (public, his pick, 2026-10-30). Push `
 every commit — that push is the backup. Until the config packages it, it opens from his app
 menu via `~/.local/share/applications/vibenote.desktop` → `run.sh` (made by hand from here;
 drop it once the packaged app has its own menu entry).
+
+**Keep it smooth** (his ask: "the app generally is choppy when adjusted, just smooth everything
+out"). Rebuilding R62D's page used to take ~300 ms. Now: the Done list is one `tk.Text` block
+(`_draw_done`), not widgets per item; a tick changes only its box (`tick`); a resize repaints
+by hiding/showing the page (`_redraw`; this also fixes the undrawn patches XWayland left
+after a resize) instead of rebuilding it; the 10 s to-do re-read runs on a side thread
+(`_reread_todo`); the mouse wheel glides (`_scroll`). Rebuild ~50 ms, resize steps ~25 ms.
+Don't bring back per-item widgets for long lists or full rebuilds on resize/ticks.

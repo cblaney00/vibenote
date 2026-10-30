@@ -71,7 +71,7 @@ class VibeNote(tk.Tk):
 
         self._build_sidebar()
         self._build_page()
-        self.sync()
+        self.sync()  # the first one in the open; later ones on a side thread
         self._sort()
         waiting = [p for p in self.projects if self.store.get(p.slug)]
         self.current = (waiting or self.projects or [None])[0]
@@ -84,7 +84,7 @@ class VibeNote(tk.Tk):
 
     def _resized(self, event):
         """On his desktop, parts of the page were left undrawn after the window changed size
-        (the ticks looked cut off), so redraw the whole page once the size settles."""
+        (the ticks looked cut off), so repaint the page once the size settles."""
         if event.widget is not self or (event.width, event.height) == self._size:
             return
         self._size = (event.width, event.height)
@@ -93,10 +93,12 @@ class VibeNote(tk.Tk):
         self._redraw_soon = self.after(150, self._redraw)
 
     def _redraw(self):
+        """Hide and show the page in one go: everything on it is drawn afresh, without the
+        cost of building it all again."""
         self._redraw_soon = None
-        f = self.focus_get()
-        if not (isinstance(f, tk.Entry) and f is not self.entry):  # not while editing a note
-            self.refresh(keep_scroll=True)
+        self.canvas.itemconfigure(self._win, state="hidden")
+        self.update_idletasks()
+        self.canvas.itemconfigure(self._win, state="normal")
 
     # --- the window floats freely (his pick) ------------------------------
 
@@ -169,7 +171,7 @@ class VibeNote(tk.Tk):
         # Scrolling area for the notes and the project's to-do list
         holder = tk.Frame(body, bg=PAPER)
         holder.pack(fill="both", expand=True)
-        self.canvas = tk.Canvas(holder, bg=PAPER, highlightthickness=0, yscrollincrement=24)
+        self.canvas = tk.Canvas(holder, bg=PAPER, highlightthickness=0, yscrollincrement=6)
         self.canvas.pack(side="left", fill="both", expand=True)
         self.notes_frame = tk.Frame(self.canvas, bg=PAPER)
         self._win = self.canvas.create_window(0, 0, window=self.notes_frame, anchor="nw")
@@ -182,8 +184,26 @@ class VibeNote(tk.Tk):
         self.bind_all("<MouseWheel>", lambda e: self._scroll(-1 if e.delta > 0 else 1))
 
     def _scroll(self, steps):
-        if self.notes_frame.winfo_height() > self.canvas.winfo_height():
-            self.canvas.yview_scroll(steps * 3, "units")
+        """Smooth scrolling: each turn of the wheel glides 72 px over a few frames."""
+        if self.notes_frame.winfo_height() <= self.canvas.winfo_height():
+            return
+        self._glide = getattr(self, "_glide", 0) + steps * 12  # in 6 px units
+        if not getattr(self, "_gliding", False):
+            self._gliding = True
+            self._glide_step()
+
+    def _glide_step(self):
+        if not self._glide:
+            self._gliding = False
+            return
+        step = max(1, abs(self._glide) // 4)  # quick at first, easing off
+        step = step if self._glide > 0 else -step
+        self.canvas.yview_scroll(step, "units")
+        self._glide -= step
+        top, bottom = self.canvas.yview()
+        if (self._glide < 0 and top <= 0) or (self._glide > 0 and bottom >= 1):
+            self._glide = 0  # at the end: stop, don't store up scrolling
+        self.after(12, self._glide_step)
 
     def _show_placeholder(self):
         if not self.entry.get():
@@ -260,14 +280,9 @@ class VibeNote(tk.Tk):
                 self._draw_history(note)
         if done:
             self._heading(f"Done ({len(done)})")
-            for note in done:
-                self._draw_history(note)
+            self._draw_done(done)
 
-        if self.sending is None:
-            n = sum(x["send"] for x in notes)
-            w = sum(x["work"] for x in notes + sent)
-            self.send_btn.set(f"Send {n} ticked" if n else "Send", enabled=bool(n))
-            self.work_btn.set(f"Work on {w}  →" if w else "Work  →", enabled=bool(w))
+        self._update_buttons()
         if not keep_scroll:
             self.canvas.yview_moveto(0)
 
@@ -345,7 +360,7 @@ class VibeNote(tk.Tk):
         box = tk.Label(cell, text="☑" if on else "☐", font=self.f_box, bg=PAPER,
                        fg=colour if on else FADED_INK, cursor="hand2")
         box.pack(expand=True)
-        box.bind("<Button-1>", lambda e: self.tick(note, which))
+        box.bind("<Button-1>", lambda e: self.tick(note, which, box))
 
     def _draw_history(self, note):
         done = note["status"] == "done"
@@ -373,21 +388,81 @@ class VibeNote(tk.Tk):
         text.pack(side="left", fill="x", expand=True)
         text.bind("<Configure>", lambda e: text.configure(wraplength=max(e.width - 12, 50)))
 
-    def sync(self):
-        """Bring the history in line with every project's to-do list. Returns whether it changed."""
+    def _draw_done(self, done):
+        """The Done list as one block of text, not a row of widgets per item: it can run to
+        dozens of items, and rebuilding that many widgets made the window choppy."""
+        indent = self.f_todo.measure("✓") + 14
+        box = tk.Text(self.notes_frame, bg=PAPER, fg=FADED_INK, font=self.f_todo, wrap="word",
+                      relief="flat", bd=0, highlightthickness=0, padx=0, pady=0, height=1,
+                      cursor="arrow", spacing3=7)
+        box.tag_configure("item", lmargin1=2, lmargin2=indent,
+                          tabs=(indent,))
+        box.tag_configure("tick", foreground=ACCENT)
+        box.tag_configure("date", font=self.f_small, foreground=FADED_INK)
+        for note in done:
+            box.insert("end", "✓", ("item", "tick"), "\t" + note["text"], "item")
+            if note.get("done"):
+                box.insert("end", "   " + nice_date(note["done"]), ("item", "date"))
+            box.insert("end", "\n", "item")
+        box.delete("end-2c")  # no blank line after the last one
+        box.configure(state="disabled")
+        box.bindtags((str(box), "all"))  # no selecting or scrolling of its own
+        box.pack(fill="x", pady=(2, 0))
+
+        def fit(_=None):
+            lines = box.count("1.0", "end", "displaylines")
+            lines = lines[0] if isinstance(lines, tuple) else lines
+            if lines and int(box.cget("height")) != lines:
+                box.configure(height=lines)
+
+        box.bind("<Configure>", fit)
+
+    def _update_buttons(self):
+        if self.sending is not None or self.current is None:
+            return
+        notes = self.store.get(self.current.slug)
+        sent = self.store.get(self.current.slug, "sent")
+        n = sum(x["send"] for x in notes)
+        w = sum(x["work"] for x in notes + sent)
+        self.send_btn.set(f"Send {n} ticked" if n else "Send", enabled=bool(n))
+        self.work_btn.set(f"Work on {w}  →" if w else "Work  →", enabled=bool(w))
+
+    def sync(self, results=None):
+        """Bring the history in line with every project's to-do list. Returns whether it changed.
+        results: what a background read found ({slug: (open, done)}); else read here."""
+        if results is None:
+            results = {p.slug: p.read() for p in self.projects}
         changed = False
         for p in self.projects:
-            done = p.done_items() if p.slug not in self.store.imported else []
-            changed |= self.store.sync(p.slug, p.todo_items(), done)
+            if p.slug in results:
+                open_items, done = results[p.slug]
+                changed |= self.store.sync(p.slug, open_items, done)
         return changed
 
     def _reread_todo(self):
-        """Claude ticks things off the to-do lists while he works; keep up with it."""
-        f = self.focus_get()
-        editing = isinstance(f, tk.Entry) and f is not self.entry
-        if not editing and self.sending is None and self.sync():
-            self.refresh(keep_scroll=True)
-        self.after(10_000, self._reread_todo)
+        """Claude ticks things off the to-do lists while he works; keep up with it. The files
+        (and, for a shared game, every git branch) are read on a side thread, so the window
+        never stalls while that happens."""
+        found = {}
+
+        def read():
+            for p in list(self.projects):
+                found[p.slug] = p.read()
+
+        reader = threading.Thread(target=read, daemon=True)
+        reader.start()
+
+        def apply():
+            if reader.is_alive():
+                self.after(100, apply)
+                return
+            f = self.focus_get()
+            editing = isinstance(f, tk.Entry) and f is not self.entry
+            if not editing and self.sending is None and self.sync(found):
+                self.refresh(keep_scroll=True)
+            self.after(10_000, self._reread_todo)
+
+        self.after(100, apply)
 
     def say(self, text, colour=FADED_INK):
         self.status.configure(text=text, fg=colour)
@@ -407,9 +482,13 @@ class VibeNote(tk.Tk):
             self.entry.delete(0, "end")
             self.refresh(keep_scroll=True)
 
-    def tick(self, note, which):
+    def tick(self, note, which, box):
+        """Flip one tick. Only that box and the buttons change; the page is not rebuilt."""
         self.store.tick(self.current.slug, [note["id"]], which, not note[which])
-        self.refresh(keep_scroll=True)
+        on = note[which]
+        colour = ACCENT if which == "send" else WORK_GREEN
+        box.configure(text="☑" if on else "☐", fg=colour if on else FADED_INK)
+        self._update_buttons()
 
     def tick_all(self, notes, which):
         on = not all(n[which] for n in notes)

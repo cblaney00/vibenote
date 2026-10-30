@@ -87,6 +87,10 @@ class Project:
         open_items = [t for t in open_items if not any(_same(t, d) for d in done)]
         return open_items, done
 
+    def read(self):
+        """(open items, finished items) in one go: what VibeNote's history is matched against."""
+        return self._read()
+
     def todo_items(self) -> list[str] | None:
         """What is waiting on its to-do list (unticked, under its list heading). None: no list."""
         return self._read()[0]
