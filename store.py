@@ -5,6 +5,9 @@ Every note has a status:
   sent     on the project's to-do list, not finished yet
   done     gone from the to-do list (Claude finished it), or found already finished on import
 Nothing is ever forgotten unless he deletes a waiting note himself.
+
+Two ticks per note (his ask): "send" (only ticked waiting notes are sent; new notes start
+ticked) and "work" (only ticked ones are given to Claude by Work; start unticked).
 """
 
 import json
@@ -53,6 +56,8 @@ class Store:
         for notes in self.notes.values():
             for n in notes:
                 n.setdefault("status", "waiting")
+                n.setdefault("send", True)
+                n.setdefault("work", False)
 
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -74,7 +79,7 @@ class Store:
         if not text.strip():
             return None
         note = {"id": new_id(), "text": " ".join(text.split()), "status": "waiting",
-                "added": today()}
+                "added": today(), "send": True, "work": False}
         self.notes.setdefault(slug, []).append(note)
         self.save()
         return note
@@ -97,6 +102,21 @@ class Store:
             self.notes[slug] = [n for n in self.all(slug) if n["id"] != note_id]
             self.notes.setdefault(to_slug, []).append(note)
             self.save()
+
+    def tick(self, slug: str, note_ids: list[str], which: str, on: bool):
+        """Set the "send" or "work" tick on some notes."""
+        for note in self.all(slug):
+            if note["id"] in note_ids:
+                note[which] = on
+        self.save()
+
+    def mark_worked(self, slug: str, note_ids: list[str]):
+        """Work started on them: the work tick comes off and the day is kept."""
+        for note in self.all(slug):
+            if note["id"] in note_ids:
+                note["work"] = False
+                note["worked"] = today()
+        self.save()
 
     def mark_sent(self, slug: str, note_ids: list[str]):
         for note in self.all(slug):
@@ -122,7 +142,8 @@ class Store:
         if first:
             # First look at this project: bring in its whole list, finished items too
             for text in done_items:
-                notes.append({"id": new_id(), "text": text, "status": "done", "imported": True})
+                notes.append({"id": new_id(), "text": text, "status": "done", "imported": True,
+                              "send": True, "work": False})
             self.imported.append(slug)
             changed = True
 
@@ -130,7 +151,8 @@ class Store:
         # on import): it counts as sent
         for text in open_items:
             if not any(n["status"] == "sent" and same(n["text"], text) for n in notes):
-                note = {"id": new_id(), "text": text, "status": "sent", "imported": True}
+                note = {"id": new_id(), "text": text, "status": "sent", "imported": True,
+                        "send": True, "work": False}
                 if not first:
                     note["sent"] = today()  # the day VibeNote first saw it there
                 notes.append(note)
@@ -140,6 +162,7 @@ class Store:
         for n in notes:
             if n["status"] == "sent" and not any(same(n["text"], t) for t in open_items):
                 n["status"] = "done"
+                n["work"] = False
                 n["done"] = today()
                 changed = True
 

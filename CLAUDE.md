@@ -27,10 +27,9 @@ to-do file is missing (e.g. on another branch) finishes nothing. Matching is by 
 Claude rewords an open item it shows as one done and one new sent.
 
 Two buttons (his ask, 2026-10-30):
-- **Send** only updates the project's to-do list: the waiting notes go on the bottom of it
+- **Send** only updates the project's to-do list: the Send-ticked waiting notes go on the bottom of it
   (made as `docs/todo.md` if it has none) and become *sent*. No Claude, no tokens.
-- **Work** has the project's Claude start on its to-do list (sending any waiting notes
-  first). It always shows a warning that this uses his Claude tokens, and nothing happens
+- **Work** has the project's Claude start on the Work-ticked items. It always shows a warning that this uses his Claude tokens, and nothing happens
   unless he presses "I agree, start work". The message (`sender.work_message`) lists what is
   open and asks Claude to work "in the most efficient way" (his words): plan the order, group
   items touching the same code, ask all look-and-feel questions at once up front, no redoing
@@ -44,9 +43,21 @@ Earlier picks: he chooses the project for each note himself (no guessing); the w
 Work does, behind the token warning. He can open it from the app menu
 (`~/.local/share/applications/vibenote.desktop` → `run.sh`), no Claude needed.
 
-Look: **warm paper** — cream page, a slightly darker cream sidebar, dark brown ink,
-Georgia (serif) text, a brick-red margin line down the page and faint ruled lines under
-each note, like a paper notebook. These were his choices; ask him before changing them.
+Look (his calls, in order):
+- 2026-10-30: "warm paper" — cream page, Georgia serif text, a notebook margin line and faint
+  ruled lines under each note.
+- 2026-10-30: "i need this theme darker, i like warm colors but it cant hurt my eyes, im
+  light sensitive." Now **dark warm**: deep brown page and sidebar, soft cream text (never
+  white), muted terracotta for headings / Send / the main button, a dim margin line, Georgia.
+  Keep everything low-glare; no bright or white areas. Colours are the constants at the top
+  of `main.py`.
+Ask him before changing the look.
+
+**Ticks** (his ask): each waiting note has a **Send** tick (terracotta, new notes start ticked)
+and a **Work** tick (green, starts unticked); items already on the list have only a Work tick.
+Send sends only Send-ticked notes; Work gives Claude only Work-ticked items (a Work-ticked
+note not yet sent is added to the list first), then the Work tick comes off and the item
+shows "Claude on it · date". Clicking a column title ticks or unticks the whole column.
 
 ## How it is built
 

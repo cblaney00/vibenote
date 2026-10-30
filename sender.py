@@ -20,22 +20,22 @@ STATE = Path.home() / ".local/state/glade/claude"
 OUTBOX = Path.home() / ".local/state/vibenote"
 
 
-def work_message(project: Project, todo: Path, items: list[str], new: list[str]) -> str:
-    """What Work types into the chat: the list, and how to get through it efficiently (his ask)."""
+def work_message(project: Project, todo: Path, items: list[str]) -> str:
+    """What Work types into the chat: the items he ticked, and how to get through them
+    efficiently (his ask)."""
     where = todo.relative_to(project.path)
-    lines = [f"Please work through my to-do list for {project.title} ({where}). "
+    lines = [f"Please work on these items from my to-do list for {project.title} ({where}). "
+             "Only these ones; leave the rest of the list for later. "
              "Do it in the most efficient way:",
-             "- First read the whole list and plan the order yourself. Group items that touch "
+             "- First read them all and plan the order yourself. Group items that touch "
              "the same part of the code so each part is opened, changed and tested once; do "
              "small items in the same pass as related bigger ones.",
              "- If any items need me to decide how something looks or feels, ask me about all "
              "of them together at the start, then carry on without stopping for each one.",
              "- Don't redo work or re-read things you already know; keep your messages to me short.",
              "- Tick each item off as it's finished, the way the list's own rules say.",
-             "", "What is on it now:"]
+             "", "The items:"]
     lines += [f"{i}. {t}" for i, t in enumerate(items, 1)]
-    if new:
-        lines += ["", f"The last {len(new)} I just added from VibeNote, in my words."]
     return "\n".join(lines)
 
 
@@ -152,12 +152,10 @@ def add_to_list(project: Project, notes: list[str]) -> Path:
     return project.add_to_todo(notes)
 
 
-def start_work(project: Project, new: list[str]) -> str:
-    """Work (uses his tokens; he has agreed by now): its Claude starts on the to-do list, in the
+def start_work(project: Project, items: list[str]) -> str:
+    """Work (uses his tokens; he has agreed by now): its Claude starts on these items, in the
     open chat if there is one, else a new one. Says what happened."""
-    todo = project.todo_file()
-    items = project.todo_items() or []
-    text = work_message(project, todo, items, new)
+    text = work_message(project, project.todo_file(), items)
     pid = open_chat_pid(project)
     if pid and type_into_chat(pid, text):
         return f"{project.title}'s Claude is on it"

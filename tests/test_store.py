@@ -72,6 +72,20 @@ class StoreTest(unittest.TestCase):
         self.assertFalse(s.sync("sub-of-seas", None, []))
         self.assertEqual(len(s.get("sub-of-seas", "sent")), 1)
 
+    def test_ticks(self):
+        s = Store(self.path)
+        a = s.add("r62d", "a")
+        b = s.add("r62d", "b")
+        self.assertTrue(a["send"])
+        self.assertFalse(a["work"])
+        s.tick("r62d", [b["id"]], "send", False)
+        s.tick("r62d", [a["id"], b["id"]], "work", True)
+        again = Store(self.path)
+        self.assertEqual([n["send"] for n in again.get("r62d")], [True, False])
+        again.mark_worked("r62d", [a["id"]])
+        self.assertEqual([n["work"] for n in again.get("r62d")], [False, True])
+        self.assertIn("worked", again.get("r62d")[0])
+
 
 if __name__ == "__main__":
     unittest.main()
