@@ -95,9 +95,18 @@ On his screen, run it as him with his session's DISPLAY/WAYLAND_DISPLAY/XDG_RUNT
 HYPRLAND_INSTANCE_SIGNATURE (copy them from one of his processes' `/proc/<pid>/environ`).
 
 GitHub: **github.com/cblaney00/vibenote** (public, his pick, 2026-10-30). Push `main` after
-every commit — that push is the backup. Until the config packages it, it opens from his app
-menu via `~/.local/share/applications/vibenote.desktop` → `run.sh` (made by hand from here;
-drop it once the packaged app has its own menu entry).
+every commit — that push is the backup.
+
+**Installed app** (2026-10-30, from a config session, branch `blaney/package-vibenote`):
+`pkgs/vibenote` + `modules/nixos/programs/vibenote.nix` give a `vibenote` command and the
+"VibeNote" menu entry; it is in `localApps`, so it is built from **this folder**. To get a
+change into it: commit, push, then `cd /home/insideabush/nixos-config && rebuild`, and tell
+him to close VibeNote and open it again. The package copies `main.py projects.py sender.py
+store.py open_chat.sh` — a new source file must be added to its `installPhase` (a config
+change: hand it to him for `vibe` → "Change or fix something on your computer"). The old
+hand-made `~/.local/share/applications/vibenote.desktop` is gone; `run.sh` remains for running
+from here. Asked for next: pin it in the Glade dock (dock.nix favourites; config) and an
+object in the Glade scene (Glade project).
 
 **Keep it smooth** (his ask: "the app generally is choppy when adjusted, just smooth everything
 out"). Rebuilding R62D's page used to take ~300 ms. Now: the Done list is one `tk.Text` block
