@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from store import Store  # noqa: E402
+from store import Store, size_label, size_score  # noqa: E402
 
 
 class StoreTest(unittest.TestCase):
@@ -85,6 +85,37 @@ class StoreTest(unittest.TestCase):
         again.mark_worked("r62d", [a["id"]])
         self.assertEqual([n["work"] for n in again.get("r62d")], [False, True])
         self.assertIn("worked", again.get("r62d")[0])
+
+    def test_size_guess(self):
+        self.assertEqual(size_label(size_score("fix the typo in the title")), "Small")
+        self.assertEqual(size_label(size_score("make the trees a bit darker")), "Small")
+        self.assertEqual(size_label(size_score("add a pause menu")), "Medium")
+        self.assertEqual(size_label(size_score("add a new level with a boss")), "Big")
+        self.assertEqual(size_label(size_score(
+            "redo the whole save system and add multiplayer")), "Big")
+
+    def test_organize_sorts_smallest_first_and_keeps_done_alone(self):
+        s = Store(self.path)
+        s.sync("r62d", ["add a new level with a boss", "typo in title"], ["old thing"])
+        s.add("r62d", "redo the whole save system")
+        s.add("r62d", "darker trees")
+        s.add("r62d", "add a pause menu")
+        s.organize("r62d")
+        again = Store(self.path)
+        self.assertEqual([n["text"] for n in again.get("r62d")],
+                         ["darker trees", "add a pause menu", "redo the whole save system"])
+        self.assertEqual([n["text"] for n in again.get("r62d", "sent")],
+                         ["typo in title", "add a new level with a boss"])
+        done = again.get("r62d", "done")
+        self.assertEqual([n["text"] for n in done], ["old thing"])
+        self.assertNotIn("size", done[0])
+
+    def test_editing_an_organized_note_updates_its_size(self):
+        s = Store(self.path)
+        n = s.add("r62d", "typo")
+        s.organize("r62d")
+        s.edit("r62d", n["id"], "add a new level with a boss")
+        self.assertEqual(size_label(s.get("r62d")[0]["size"]), "Big")
 
 
 if __name__ == "__main__":

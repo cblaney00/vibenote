@@ -37,6 +37,14 @@ Two buttons (his ask, 2026-10-30):
   terminal opens Claude on the project (his last chat, or a fresh one) with it as the first
   message.
 
+**Organize** (his ask, 2026-10-30: "figure out which changes will take the most and least
+tokens"): a button left of Send. His picks: a free rough guess (no Claude), and sort + label.
+It sorts the waiting and the sent notes smallest first and tags each Small / Medium / Big
+(green / faded / terracotta). The guess (`store.size_score`) scores telling words (big: new
+level, map, tutorial, system...; small: typo, darker, a bit...), each counted once, plus a
+little for length and for several asks in one note; tuned on his real notes. The guess is
+kept on the note (`size`); notes added later have no tag until he presses Organize again.
+
 Earlier picks: he chooses the project for each note himself (no guessing); the window floats freely.
 
 **It must work without Claude** (his ask): writing and sorting notes never uses Claude; only

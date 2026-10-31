@@ -12,7 +12,7 @@ from tkinter import font as tkfont
 
 import projects
 import sender
-from store import Store
+from store import Store, size_label
 
 # Dark warm colours (his ask, 2026-10-30: "darker, i like warm colors but it cant hurt my
 # eyes, im light sensitive"): deep brown, soft cream text (never white), muted terracotta.
@@ -164,6 +164,10 @@ class VibeNote(tk.Tk):
         self.work_btn.pack(side="right")
         self.send_btn = Button(bottom, self.f_button, self.send, main=False)
         self.send_btn.pack(side="right", padx=(0, 10))
+        # Organize (his ask): a free rough guess at each change's size, smallest first
+        self.organize_btn = Button(bottom, self.f_button, self.organize, main=False)
+        self.organize_btn.set("Organize")
+        self.organize_btn.pack(side="right", padx=(0, 10))
         self.status = tk.Label(bottom, font=self.f_small, bg=PAPER, fg=FADED_INK, anchor="w",
                                justify="left")
         self.status.pack(side="left", fill="x", expand=True)
@@ -253,6 +257,7 @@ class VibeNote(tk.Tk):
             self.count_label.configure(text="Start one with vibe, and it shows up here")
             self.send_btn.pack_forget()
             self.work_btn.pack_forget()
+            self.organize_btn.pack_forget()
             return
 
         notes = self.store.get(p.slug)
@@ -305,6 +310,7 @@ class VibeNote(tk.Tk):
         remove.pack(side="right", padx=(8, 4), anchor="n")
         move = tk.Label(line, text="Move", font=self.f_small, bg=PAPER, fg=PAPER, cursor="hand2")
         move.pack(side="right", padx=(8, 0), anchor="n", pady=(3, 0))
+        self._size_tag(line, note, pady=(3, 0))
 
         # Ruled line under each note, like lined paper
         tk.Frame(row, bg=RULE, height=1).pack(fill="x")
@@ -362,6 +368,15 @@ class VibeNote(tk.Tk):
         box.pack(expand=True)
         box.bind("<Button-1>", lambda e: self.tick(note, which, box))
 
+    def _size_tag(self, parent, note, pady=0):
+        """Small / Medium / Big, once Organize has guessed this note's size."""
+        if "size" not in note:
+            return
+        label = size_label(note["size"])
+        colour = {"Small": WORK_GREEN, "Medium": FADED_INK, "Big": ACCENT}[label]
+        tk.Label(parent, text=label, font=self.f_small, bg=PAPER, fg=colour,
+                 width=7).pack(side="right", padx=(10, 0), anchor="n", pady=pady)
+
     def _draw_history(self, note):
         done = note["status"] == "done"
         line = tk.Frame(self.notes_frame, bg=PAPER)
@@ -383,6 +398,8 @@ class VibeNote(tk.Tk):
             tk.Label(line, text=when, font=self.f_small, bg=PAPER,
                      fg=WORK_GREEN if note.get("worked") and not done else FADED_INK
                      ).pack(side="right", padx=(10, 4), anchor="n")
+        if not done:
+            self._size_tag(line, note)
         text = tk.Label(line, text=note["text"], font=self.f_todo, bg=PAPER,
                         fg=FADED_INK if done else INK, anchor="w", justify="left")
         text.pack(side="left", fill="x", expand=True)
@@ -494,6 +511,18 @@ class VibeNote(tk.Tk):
         on = not all(n[which] for n in notes)
         self.store.tick(self.current.slug, [n["id"] for n in notes], which, on)
         self.refresh(keep_scroll=True)
+
+    def organize(self):
+        """Sort the waiting and sent notes smallest change first, each tagged with its size.
+        VibeNote guesses from the words in each note: no Claude, no tokens."""
+        p = self.current
+        if p is None or not (self.store.get(p.slug) or self.store.get(p.slug, "sent")):
+            self.say("Nothing to organize yet.")
+            return
+        self.store.organize(p.slug)
+        self.say("Sorted smallest to biggest. It's a rough guess from the words, "
+                 "no tokens used.", ACCENT)
+        self.refresh()
 
     def delete_note(self, note):
         self.store.delete(self.current.slug, note["id"])
