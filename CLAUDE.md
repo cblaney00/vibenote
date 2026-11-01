@@ -63,7 +63,7 @@ run long, so the median is used). `vibenote --collect-usage` (as root) saves tha
 `~/.local/share/vibenote/usage.json`; the Work message asks Claude to run it when a batch is
 done, and VibeNote re-reads it every 5 min on a side thread. `TokenGuess`: tokens = size
 score × learned tokens per point (median over that project's batches, else all) × the hour's factor (his own replies
-at that hour vs average, ≥40 replies, 0.75–1.35). Tags read "Big · ~2.4M"; the Work button
+at that hour vs average, ≥40 replies, 0.75–1.35). Tags read "Big · ~29k"; the Work button
 shows the total for the ticked items. The sign (sidebar bottom, `good_time`): *Not a great
 time* on weekday 5–11am Pacific (Anthropic made 5-hour limits run out faster then in March
 2026; later reports say not for Claude Code, so it says "may") or when the last 5 hours used
