@@ -307,17 +307,19 @@ class VibeNote(tk.Tk):
             tk.Label(self.notes_frame, text="No notes waiting. Write one above.",
                      font=self.f_small, bg=PAPER, fg=FADED_INK, anchor="w").pack(fill="x", pady=6)
         else:
-            self._heading(f"Waiting to send ({len(notes)})", notes, send=True, top=True)
-        group = None
+            self._heading(f"Waiting to send ({len(notes)}) · {self._total(notes)}", notes,
+                          send=True, top=True)
+        group, totals = None, self._group_totals(notes)
         for note in notes:
-            group = self._group_heading(note, group)
+            group = self._group_heading(note, group, totals)
             self._draw_note(note)
 
         if sent:
-            self._heading(f"Sent: on its to-do list ({len(sent)})", sent, send=False)
-            group = None
+            self._heading(f"Sent: on its to-do list ({len(sent)}) · {self._total(sent)}", sent,
+                          send=False)
+            group, totals = None, self._group_totals(sent)
             for note in sent:
-                group = self._group_heading(note, group)
+                group = self._group_heading(note, group, totals)
                 self._draw_history(note)
         if done:
             self._heading(f"Done ({len(done)})")
@@ -390,12 +392,24 @@ class VibeNote(tk.Tk):
         tk.Label(row, text=text, font=self.f_head, bg=PAPER, fg=FADED_INK,
                  anchor="w").pack(side="left", fill="x", expand=True)
 
-    def _group_heading(self, note, current):
-        """After Organize, a quiet heading over each group of related notes (his pick).
-        Returns the group now showing."""
+    def _total(self, notes):
+        """A section's token estimate: its notes' guesses added up (his ask, 2026-11-01)."""
+        return f"{sender.short_tokens(sum(self._tokens(n) for n in notes))} tokens"
+
+    def _group_totals(self, notes):
+        totals = {}
+        for n in notes:
+            if n.get("group"):
+                totals[n["group"]] = totals.get(n["group"], 0) + self._tokens(n)
+        return totals
+
+    def _group_heading(self, note, current, totals):
+        """After Organize, a quiet heading over each group of related notes (his pick), with
+        the group's token total. Returns the group now showing."""
         group = note.get("group")
         if group and group != current:
-            tk.Label(self.notes_frame, text=group, font=self.f_small, bg=PAPER, fg=ACCENT,
+            text = f"{group} · {sender.short_tokens(totals[group])}"
+            tk.Label(self.notes_frame, text=text, font=self.f_small, bg=PAPER, fg=ACCENT,
                      anchor="w").pack(fill="x", padx=(20, 0), pady=(10, 0))
         return group
 
@@ -646,8 +660,7 @@ class VibeNote(tk.Tk):
             self.say("Nothing to organize yet.")
             return
         self.store.organize(p.slug)
-        self.say("Sorted smallest to biggest. It's a rough guess from the words, "
-                 "no tokens used.", ACCENT)
+        self.say("✓ Organized (no tokens used)", ACCENT)
         self.refresh()
 
     def delete_note(self, note):

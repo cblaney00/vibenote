@@ -12,3 +12,4 @@ when one is finished, tick it and move it to **Done**.
 - [x] when organize is pressed, it should not only sort by effort needed but things should also be grouped together if claude is going to be working with similar stuff
 - [x] make a token estimator that learns how many tokens it uses based on time of day and based on information claude has about how that works
 - [x] the token estimations seem crazy high, on those 3 last things i had vibenote do it took about 50k tokens
+- [x] make sure that each section show the section total for token estimate, just a simple addition problem but built in
