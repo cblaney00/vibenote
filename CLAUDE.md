@@ -11,7 +11,8 @@ a future session starts by reading them.*
 
 VibeNote is insideabush's idea pad for his other projects (R62D, Sub of Seas, the Glade, ...),
 in its own floating desktop window. The sidebar lists every project in `~/projects` (any
-folder with a `.vibe-project`, except VibeNote itself), with how many notes are waiting.
+folder with a `.vibe-project`, VibeNote included, so he can keep its own to-do list in it
+— his ask, 2026-10-31), with how many notes are waiting.
 He picks a project, types notes into it, can edit (click), move to another project
 (Move / right-click) or delete (×) them. Projects with the longest lists (all notes ever:
 waiting + sent + done) sit at the top of the sidebar (his ask), and it opens on the top one

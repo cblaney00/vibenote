@@ -66,14 +66,15 @@ class ProjectsTest(unittest.TestCase):
             (d / todo_name).write_text(todo)
         return d
 
-    def test_finds_projects_but_not_itself(self):
+    def test_finds_projects_including_itself(self):
         self.make("r62d", "title=R62D\nshell=vibe-web\n")
         self.make("sub-of-seas", "title=sub-of-seas (the co-op WWII submarine game)\nkind=game\n"
                   "shared=landonreekstin/sub-of-seas\n")
         self.make("vibenote", "title=VibeNote\n")
         found = projects.find_projects(self.base)
         self.assertEqual([(p.slug, p.title, p.kind) for p in found],
-                         [("r62d", "R62D", "app"), ("sub-of-seas", "Sub of Seas", "game")])
+                         [("r62d", "R62D", "app"), ("sub-of-seas", "Sub of Seas", "game"),
+                          ("vibenote", "VibeNote", "app")])
         self.assertEqual(found[1].shared, "landonreekstin/sub-of-seas")
 
     def test_adds_to_existing_list_under_to_do(self):

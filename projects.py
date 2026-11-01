@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 PROJECTS_DIR = Path(os.environ.get("VIBENOTE_PROJECTS", "/home/insideabush/projects"))
-SELF = "vibenote"
 
 
 @dataclass
@@ -183,8 +182,6 @@ def find_projects(base: Path = PROJECTS_DIR) -> list[Project]:
     found = []
     for marker in sorted(base.glob("*/.vibe-project")):
         folder = marker.parent
-        if folder.name == SELF:
-            continue
         try:
             text = marker.read_text()
         except OSError:
