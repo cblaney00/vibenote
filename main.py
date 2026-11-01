@@ -3,9 +3,11 @@
 Writing and sorting notes never needs Claude; only the Send button talks to it.
 """
 
+import json
 import os
+import sys
 import subprocess
-from datetime import date
+from datetime import date, datetime
 import threading
 import time
 import tkinter as tk
@@ -13,7 +15,7 @@ from tkinter import font as tkfont
 
 import projects
 import sender
-from store import Store, size_label
+from store import Store, size_label, size_score
 
 # Dark warm colours (his ask, 2026-10-30: "darker, i like warm colors but it cant hurt my
 # eyes, im light sensitive"): deep brown, soft cream text (never white), muted terracotta.
@@ -49,6 +51,7 @@ class VibeNote(tk.Tk):
         self.configure(bg=PAPER)
 
         self.store = Store()
+        self.guess = sender.TokenGuess(self._read_usage())
         self.projects = projects.find_projects()
         waiting = [p for p in self.projects if self.store.get(p.slug)]
         self.current = (waiting or self.projects)[0] if self.projects else None
@@ -81,7 +84,9 @@ class VibeNote(tk.Tk):
         waiting = [p for p in self.projects if self.store.get(p.slug)]
         self.current = (waiting or self.projects or [None])[0]
         self.refresh()
+        self._show_sign()
         self.after(10_000, self._reread_todo)
+        self.after(1500, self._relearn)
         self.after(200, self._float)
         self._size = None
         self._redraw_soon = None
@@ -135,6 +140,16 @@ class VibeNote(tk.Tk):
                  anchor="w").pack(fill="x", padx=18, pady=(18, 4))
         tk.Label(side, text="Your projects", font=self.f_head, bg=SIDEBAR, fg=FADED_INK,
                  anchor="w").pack(fill="x", padx=18, pady=(0, 10))
+
+        # "Is now a good time for Claude?" (his ask, 2026-11-01), at the bottom
+        sign = tk.Frame(side, bg=SIDEBAR)
+        sign.pack(side="bottom", fill="x", padx=18, pady=(0, 18))
+        self.sign_title = tk.Label(sign, font=self.f_side_picked, bg=SIDEBAR, anchor="w",
+                                   justify="left", wraplength=184)
+        self.sign_title.pack(fill="x")
+        self.sign_why = tk.Label(sign, font=self.f_small, bg=SIDEBAR, fg=FADED_INK, anchor="w",
+                                 justify="left", wraplength=184)
+        self.sign_why.pack(fill="x")
 
         self.list_box = tk.Frame(side, bg=SIDEBAR)
         self.list_box.pack(fill="both", expand=True)
@@ -434,8 +449,9 @@ class VibeNote(tk.Tk):
             return
         label = size_label(note["size"])
         colour = {"Small": WORK_GREEN, "Medium": FADED_INK, "Big": ACCENT}[label]
-        tk.Label(parent, text=label, font=self.f_small, bg=PAPER, fg=colour,
-                 width=7).pack(side="right", padx=(10, 0), anchor="n", pady=pady)
+        tokens = sender.short_tokens(self._tokens(note))
+        tk.Label(parent, text=f"{label} · {tokens}", font=self.f_small, bg=PAPER, fg=colour,
+                 width=13, anchor="e").pack(side="right", padx=(10, 0), anchor="n", pady=pady)
 
     def _draw_history(self, note):
         done = note["status"] == "done"
@@ -506,7 +522,10 @@ class VibeNote(tk.Tk):
         n = sum(x["send"] for x in notes)
         w = sum(x["work"] for x in notes + sent)
         self.send_btn.set(f"Send {n} ticked" if n else "Send", enabled=bool(n))
-        self.work_btn.set(f"Work on {w}  →" if w else "Work  →", enabled=bool(w))
+
+        total = sum(self._tokens(x) for x in notes + sent if x["work"])
+        self.work_btn.set(f"Work on {w} · {sender.short_tokens(total)}  →" if w else "Work  →",
+                          enabled=bool(w))
 
     def sync(self, results=None):
         """Bring the history in line with every project's to-do list. Returns whether it changed.
@@ -544,6 +563,48 @@ class VibeNote(tk.Tk):
             self.after(10_000, self._reread_todo)
 
         self.after(100, apply)
+
+    # --- tokens --------------------------------------------------------------
+
+    def _read_usage(self):
+        try:
+            return json.loads(sender.USAGE.read_text())
+        except (OSError, ValueError):
+            return None
+
+    def _tokens(self, note):
+        """The learned guess for one note, at this hour."""
+        size = note["size"] if "size" in note else size_score(note["text"])
+        return self.guess.tokens(size, datetime.now().hour)
+
+    def _relearn(self):
+        """Every 5 minutes: learn again from Claude's chats (on a side thread: reading them
+        takes a second or two), then update the sign and the guesses."""
+        found = []
+        reader = threading.Thread(target=lambda: found.append(sender.load_usage()),
+                                  daemon=True)
+        reader.start()
+
+        def apply():
+            if reader.is_alive():
+                self.after(200, apply)
+                return
+            if found and found[0]:
+                self.guess = sender.TokenGuess(found[0])
+                if self.sending is None:
+                    self.refresh(keep_scroll=True)
+            self._show_sign()
+            self.after(5 * 60_000, self._relearn)
+
+        self.after(200, apply)
+
+    def _show_sign(self):
+        level, why = sender.good_time(self.guess)
+        title, colour = {"good": ("● Good time for Claude", WORK_GREEN),
+                         "ok": ("● OK time for Claude", INK),
+                         "bad": ("● Not a great time for Claude", ACCENT)}[level]
+        self.sign_title.configure(text=title, fg=colour)
+        self.sign_why.configure(text=why)
 
     def say(self, text, colour=FADED_INK):
         self.status.configure(text=text, fg=colour)
@@ -822,4 +883,9 @@ class TokenWarning(tk.Toplevel):
 
 
 if __name__ == "__main__":
-    VibeNote().mainloop()
+    if "--collect-usage" in sys.argv:
+        # Run as root (by Claude at the end of a Work batch): learn from Claude's chats
+        sender.save_usage(sender.collect_usage())
+        print(f"VibeNote: token use saved to {sender.USAGE}")
+    else:
+        VibeNote().mainloop()

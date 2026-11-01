@@ -52,6 +52,23 @@ character's name, "planks") together, greedily, biggest share first; leftovers g
 their own", last. Groups run smallest (summed size) first, notes small to big inside. The
 heading is kept on the note (`group`).
 
+**Token estimate and the "good time?" sign** (his asks, 2026-11-01: "a token estimator that
+learns how many tokens it uses based on time of day", and "a sign ... if it is a good time to
+claude or not from a token perspective"; his pick: on each tag + a total). In `sender.py`:
+`collect_usage` reads every Claude chat (`/root/.claude/projects/*/*.jsonl`, root only) —
+tokens per reply (cache reads count 1/10, as they are charged), per hour of the day, and each
+Work batch (from its "Please work on these items" message to the next one / chat end; these
+run long, so the median is used). `vibenote --collect-usage` (as root) saves that to
+`~/.local/share/vibenote/usage.json`; the Work message asks Claude to run it when a batch is
+done, and VibeNote re-reads it every 5 min on a side thread. `TokenGuess`: tokens = size
+score × learned tokens per point (median over batches) × the hour's factor (his own replies
+at that hour vs average, ≥40 replies, 0.75–1.35). Tags read "Big · ~2.4M"; the Work button
+shows the total for the ticked items. The sign (sidebar bottom, `good_time`): *Not a great
+time* on weekday 5–11am Pacific (Anthropic made 5-hour limits run out faster then in March
+2026; later reports say not for Claude Code, so it says "may") or when the last 5 hours used
+over 70% of his busiest 5 hours ever (only if the summary is <20 min old); *OK* when his
+chats use more at this hour; else *Good*.
+
 Earlier picks: he chooses the project for each note himself (no guessing); the window floats freely.
 
 **It must work without Claude** (his ask): writing and sorting notes never uses Claude; only

@@ -34,6 +34,8 @@ def work_message(project: Project, todo: Path, items: list[str]) -> str:
              "of them together at the start, then carry on without stopping for each one.",
              "- Don't redo work or re-read things you already know; keep your messages to me short.",
              "- Tick each item off as it's finished, the way the list's own rules say.",
+             "- When all are done, run `vibenote --collect-usage` (it lets VibeNote learn "
+             "how many tokens this took).",
              "", "The items:"]
     lines += [f"{i}. {t}" for i, t in enumerate(items, 1)]
     return "\n".join(lines)
@@ -161,3 +163,179 @@ def start_work(project: Project, items: list[str]) -> str:
         return f"{project.title}'s Claude is on it"
     open_new_chat(project, text)
     return f"Opened a new Claude terminal for {project.title}"
+
+
+# --- learning how many tokens Claude uses (his ask, 2026-11-01) ---------------------------
+# Claude's chats record the tokens of every reply (/root/.claude/projects/*/*.jsonl; only
+# root can read them, so `vibenote --collect-usage`, run as root, sums them up into USAGE,
+# which VibeNote reads). Tokens are counted the way they are charged: reading from Claude's
+# cache costs about a tenth of a fresh token, so those count a tenth.
+
+TRANSCRIPTS = Path(os.environ.get("VIBENOTE_TRANSCRIPTS", "/root/.claude/projects"))
+USAGE = Path(os.environ.get("VIBENOTE_USAGE",
+                            "/home/insideabush/.local/share/vibenote/usage.json"))
+WORK_START = "Please work on these items from my to-do list"
+
+
+def _weighted(u: dict) -> float:
+    return (u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0)
+            + u.get("output_tokens", 0) + 0.1 * u.get("cache_read_input_tokens", 0))
+
+
+def _user_text(msg: dict) -> str:
+    content = msg.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(c.get("text", "") for c in content
+                       if isinstance(c, dict) and c.get("type") == "text")
+    return ""
+
+
+def collect_usage(transcripts: Path = TRANSCRIPTS) -> dict:
+    """Sum up every chat: tokens per hour of the day, and what each Work batch cost."""
+    from datetime import datetime, timedelta, timezone
+    hours = {h: [0, 0.0] for h in range(24)}  # replies, tokens
+    batches, stamps, seen = [], [], set()
+    for f in sorted(transcripts.glob("*/*.jsonl")):
+        batch = None
+        try:
+            lines = f.open(errors="replace")
+        except OSError:
+            continue
+        with lines:
+            for line in lines:
+                if '"usage"' not in line and WORK_START not in line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                msg = d.get("message") or {}
+                if d.get("type") == "user":
+                    text = _user_text(msg)
+                    if text.startswith(WORK_START):
+                        items = [m.split(". ", 1)[1] for m in text.split("\n")
+                                 if m[:1].isdigit() and ". " in m]
+                        batch = {"items": items, "tokens": 0.0, "started": d.get("timestamp")}
+                        batches.append(batch)
+                    continue
+                u = msg.get("usage")
+                key = (msg.get("id"), d.get("requestId"))
+                if not u or key in seen:
+                    continue
+                seen.add(key)
+                tokens = _weighted(u)
+                try:
+                    when = datetime.fromisoformat(d["timestamp"].replace("Z", "+00:00"))
+                except (KeyError, ValueError):
+                    continue
+                local = when.astimezone()
+                hours[local.hour][0] += 1
+                hours[local.hour][1] += tokens
+                stamps.append((when, tokens))
+                if batch is not None:
+                    batch["tokens"] += tokens
+    # Busiest 5 hours ever, and the last 5 hours (Claude's limits run in 5-hour windows)
+    stamps.sort()
+    window, start, biggest = 0.0, 0, 0.0
+    for when, tokens in stamps:
+        window += tokens
+        while stamps[start][0] < when - timedelta(hours=5):
+            window -= stamps[start][1]
+            start += 1
+        biggest = max(biggest, window)
+    now = datetime.now(timezone.utc)
+    last5 = sum(t for w, t in stamps if w > now - timedelta(hours=5))
+    return {"updated": now.isoformat(), "hours": hours,
+            "batches": [b for b in batches if b["items"] and b["tokens"]],
+            "last5h": round(last5), "max5h": round(biggest)}
+
+
+def save_usage(usage: dict, path: Path = USAGE):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(usage, indent=1))
+    tmp.replace(path)
+    if os.geteuid() == 0:  # root collected it; it is his file
+        st = path.parent.stat()
+        os.chown(path, st.st_uid, st.st_gid)
+
+
+def load_usage(path: Path = USAGE) -> dict | None:
+    """The latest summary: collected here if this user can read the chats, else the file."""
+    if os.access(TRANSCRIPTS, os.R_OK | os.X_OK):
+        try:
+            usage = collect_usage()
+            save_usage(usage, path)
+            return usage
+        except OSError:
+            pass
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+class TokenGuess:
+    """Turns a note's size guess (store.size_score) into tokens, learned from what his
+    Work batches cost, and adjusted for the hour of the day from all his chats."""
+
+    PER_POINT = 40_000  # before any Work batch has been measured
+
+    def __init__(self, usage: dict | None):
+        from store import size_score
+        self.usage = usage or {}
+        rates = sorted(b["tokens"] / max(sum(size_score(t) for t in b["items"]), 1)
+                       for b in self.usage.get("batches", []))
+        self.per_point = rates[len(rates) // 2] if rates else self.PER_POINT
+        self.learned = len(rates)
+        hours = {int(h): v for h, v in self.usage.get("hours", {}).items()}
+        replies = sum(v[0] for v in hours.values())
+        self.average = sum(v[1] for v in hours.values()) / replies if replies else 0
+        self.hours = hours
+
+    def hour_factor(self, hour: int) -> float:
+        """How much more (or less) his chats use per reply at this hour than on average,
+        from at least 40 replies at that hour; kept between 0.75 and 1.35."""
+        count, tokens = self.hours.get(hour, (0, 0))
+        if count < 40 or not self.average:
+            return 1.0
+        return min(max(tokens / count / self.average, 0.75), 1.35)
+
+    def tokens(self, size: float, hour: int) -> int:
+        return round(max(size, 0.5) * self.per_point * self.hour_factor(hour))
+
+
+def short_tokens(n: float) -> str:
+    """59_400 -> "~59k", 1_250_000 -> "~1.3M"."""
+    if n >= 1_000_000:
+        return f"~{n / 1_000_000:.1f}M"
+    if n >= 1000:
+        return f"~{round(n / 1000)}k"
+    return f"~{round(n)}"
+
+
+def good_time(guess: TokenGuess, now=None) -> tuple[str, str]:
+    """The sign (his ask: "if it is a good time to claude or not from a token perspective").
+    Returns (level, why): level is "good", "ok" or "bad"."""
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    now = now or datetime.now().astimezone()
+    usage = guess.usage
+    # Claude's busiest hours are weekday mornings in California; Anthropic has made the
+    # 5-hour limits run out faster then (March 2026), though later reports say not for
+    # Claude Code. Said as "may".
+    pacific = now.astimezone(ZoneInfo("America/Los_Angeles"))
+    if pacific.weekday() < 5 and 5 <= pacific.hour < 11:
+        return "bad", "Claude's busiest hours (weekday mornings in the US): limits may run out faster."
+    try:
+        fresh = (datetime.now(timezone.utc)
+                 - datetime.fromisoformat(usage["updated"])).total_seconds() < 20 * 60
+    except (KeyError, ValueError, TypeError):
+        fresh = False
+    if fresh and usage.get("max5h") and usage.get("last5h", 0) > 0.7 * usage["max5h"]:
+        return "bad", "You've used a lot in the last 5 hours; your limit may be close."
+    if guess.hour_factor(now.hour) > 1.15:
+        return "ok", "Quiet for Claude, but your chats tend to use more tokens at this hour."
+    return "good", "Quiet hours for Claude."
