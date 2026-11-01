@@ -96,6 +96,84 @@ def size_label(score: float) -> str:
     return "Small" if score < 2.2 else "Medium" if score < 5 else "Big"
 
 
+# --- grouping notes Claude would work on together (his ask: Organize groups them) ---
+# Themes that use different words for the same part of a project. Anything else is grouped
+# by a telling word two notes share (a character's name, "planks", "shield"...).
+THEMES = {
+    "Sound": ["sound", "sounds", "audio", "music", "song", "noise", "footsteps", "volume",
+              "loud", "louder", "quieter", "voice", "instruments"],
+    "Tutorial": ["tutorial", "tutorials", "walkthrough", "training", "teach"],
+    "Maps and levels": ["map", "maps", "level", "levels", "layout", "terrain",
+                        "room", "rooms", "world"],
+    "Weapons and shooting": ["gun", "guns", "shoot", "shooting", "bullet", "bullets",
+                             "weapon", "weapons", "aim", "aiming", "reticle", "ads",
+                             "launcher", "melee", "damage", "scope", "recoil"],
+    "Bots and enemies": ["bot", "bots", "enemy", "enemies", "ai", "creature", "creatures"],
+    "Menus and buttons": ["menu", "menus", "button", "buttons", "settings", "options",
+                          "lobby", "screen", "hud"],
+    "Look": ["color", "colour", "colors", "colours", "darker", "lighter", "brighter",
+             "texture", "textures", "theme", "font", "icon", "graphics", "picture"],
+    "Movement": ["walk", "walking", "run", "running", "jump", "crouch", "movement",
+                 "speed", "sensitivity", "camera", "cameras"],
+    "Speed and lag": ["lag", "lags", "laggy", "performance", "intensive", "fps", "choppy",
+                      "smooth", "smoother", "quicker", "startup", "loading", "stutter"],
+    "Claude and tokens": ["claude", "token", "tokens"],
+}
+_THEME_OF = {w: theme for theme, words in THEMES.items() for w in words}
+STOP_WORDS = set("""
+the and for that this with when then than there their they them these those should would
+could will make made makes making have having been being able also just very more less
+much some each every only even still really maybe which about after before other into
+from over under while where what like same sure dont doesnt cant isnt wont thing things
+time times need want wants work works working game games player players project app able
+first second third last next most least it's its your you yours ours our here away ever
+again always never because instead without within between around through until both
+whole fine good better best bad worse little bit way ways part parts kind lot lots get
+gets getting put puts give gives take takes keep keeps use uses used show shows look looks
+feel feels think know right left back down done yes add adding new can into onto upon
+mode modes version versions feature features
+""".split())
+
+
+def _keywords(text: str) -> set[str]:
+    """The words that say what a note is about: themes, and telling words (crude plural
+    stripping, so "plank" and "planks" match)."""
+    words = re.findall(r"[a-z][a-z']+", text.lower())
+    found = set()
+    for w in words:
+        w = w.replace("'", "")
+        if w in _THEME_OF:
+            found.add(_THEME_OF[w])
+        if len(w) >= 4 and w not in STOP_WORDS:
+            found.add("~" + (w[:-1] if w.endswith("s") and not w.endswith("ss") else w))
+    return found
+
+
+def group_notes(notes: list[dict]) -> list[tuple[str, list[dict]]]:
+    """Put notes Claude would work on together side by side: [(heading, notes)]. Each round
+    takes the theme or word shared by the most notes not yet grouped (themes win ties);
+    notes that share nothing go together under "On their own", last."""
+    keys = {id(n): _keywords(n["text"]) for n in notes}
+    left = list(notes)
+    groups = []
+    while True:
+        counts = {}
+        for n in left:
+            for k in keys[id(n)]:
+                counts[k] = counts.get(k, 0) + 1
+        best = max(counts.items(), key=lambda kv: (kv[1], not kv[0].startswith("~"), kv[0]),
+                   default=(None, 0))
+        if best[1] < 2:
+            break
+        key = best[0]
+        members = [n for n in left if key in keys[id(n)]]
+        left = [n for n in left if key not in keys[id(n)]]
+        groups.append((key[1:].capitalize() if key.startswith("~") else key, members))
+    if left:
+        groups.append(("On their own", left))
+    return groups
+
+
 class Store:
     """All notes, per project folder name. Every change is saved straight away."""
 
@@ -187,13 +265,21 @@ class Store:
         self.save()
 
     def organize(self, slug: str):
-        """Guess each waiting and sent note's size and sort both lists smallest first.
-        Done notes keep their place. Ties keep the order they were in."""
+        """Group the waiting notes, and the sent ones, by what Claude would work on together
+        (his ask), smallest group first, and smallest note first inside each group. Each
+        note keeps its size guess and its group's heading. Done notes keep their place."""
         notes = self.all(slug)
-        for n in notes:
-            if n["status"] != "done":
+        live = []
+        for status in ("waiting", "sent"):
+            mine = [n for n in notes if n["status"] == status]
+            for n in mine:
                 n["size"] = size_score(n["text"])
-        live = sorted((n for n in notes if n["status"] != "done"), key=lambda n: n["size"])
+            groups = group_notes(mine)
+            groups.sort(key=lambda g: (g[0] == "On their own", sum(n["size"] for n in g[1])))
+            for heading, members in groups:
+                for n in sorted(members, key=lambda n: n["size"]):
+                    n["group"] = heading
+                    live.append(n)
         self.notes[slug] = live + [n for n in notes if n["status"] == "done"]
         self.save()
 

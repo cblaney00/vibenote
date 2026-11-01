@@ -110,6 +110,35 @@ class StoreTest(unittest.TestCase):
         self.assertEqual([n["text"] for n in done], ["old thing"])
         self.assertNotIn("size", done[0])
 
+    def test_organize_groups_related_notes(self):
+        s = Store(self.path)
+        for text in ["footsteps are too loud", "wraith's scanner should be toggle",
+                     "add a sea shanty song", "fix the tutorial", "wraith needs a buff",
+                     "the tutorial is too long"]:
+            s.add("sub", text)
+        s.organize("sub")
+        groups = {}
+        for n in s.get("sub"):
+            groups.setdefault(n["group"], []).append(n["text"])
+        self.assertEqual(sorted(groups["Sound"]), ["add a sea shanty song",
+                                                   "footsteps are too loud"])
+        self.assertEqual(sorted(groups["Tutorial"]), ["fix the tutorial",
+                                                      "the tutorial is too long"])
+        self.assertEqual(sorted(groups["Wraith"]), ["wraith needs a buff",
+                                                    "wraith's scanner should be toggle"])
+        # each group's notes sit together in the list
+        order = [n["group"] for n in s.get("sub")]
+        changes = sum(a != b for a, b in zip(order, order[1:]))
+        self.assertEqual(changes, len(set(order)) - 1)
+
+    def test_notes_sharing_nothing_go_last(self):
+        s = Store(self.path)
+        for text in ["glint cannot sonar pulse up stairs", "footsteps too loud",
+                     "music is too quiet"]:
+            s.add("x", text)
+        s.organize("x")
+        self.assertEqual([n["group"] for n in s.get("x")], ["Sound", "Sound", "On their own"])
+
     def test_editing_an_organized_note_updates_its_size(self):
         s = Store(self.path)
         n = s.add("r62d", "typo")

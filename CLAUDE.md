@@ -45,6 +45,12 @@ It sorts the waiting and the sent notes smallest first and tags each Small / Med
 level, map, tutorial, system...; small: typo, darker, a bit...), each counted once, plus a
 little for length and for several asks in one note; tuned on his real notes. The guess is
 kept on the note (`size`); notes added later have no tag until he presses Organize again.
+Organize also **groups** (his ask, 2026-11-01: "grouped together if claude is going to be
+working with similar stuff"; his pick: small terracotta headings): `store.group_notes` puts
+notes sharing a theme (`THEMES`: Sound, Tutorial, Weapons...) or a telling word (a
+character's name, "planks") together, greedily, biggest share first; leftovers go under "On
+their own", last. Groups run smallest (summed size) first, notes small to big inside. The
+heading is kept on the note (`group`).
 
 Earlier picks: he chooses the project for each note himself (no guessing); the window floats freely.
 

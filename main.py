@@ -293,12 +293,16 @@ class VibeNote(tk.Tk):
                      font=self.f_small, bg=PAPER, fg=FADED_INK, anchor="w").pack(fill="x", pady=6)
         else:
             self._heading(f"Waiting to send ({len(notes)})", notes, send=True, top=True)
+        group = None
         for note in notes:
+            group = self._group_heading(note, group)
             self._draw_note(note)
 
         if sent:
             self._heading(f"Sent: on its to-do list ({len(sent)})", sent, send=False)
+            group = None
             for note in sent:
+                group = self._group_heading(note, group)
                 self._draw_history(note)
         if done:
             self._heading(f"Done ({len(done)})")
@@ -371,6 +375,15 @@ class VibeNote(tk.Tk):
         tk.Label(row, text=text, font=self.f_head, bg=PAPER, fg=FADED_INK,
                  anchor="w").pack(side="left", fill="x", expand=True)
 
+    def _group_heading(self, note, current):
+        """After Organize, a quiet heading over each group of related notes (his pick).
+        Returns the group now showing."""
+        group = note.get("group")
+        if group and group != current:
+            tk.Label(self.notes_frame, text=group, font=self.f_small, bg=PAPER, fg=ACCENT,
+                     anchor="w").pack(fill="x", padx=(20, 0), pady=(10, 0))
+        return group
+
     def _tick_cell(self, parent, note, which):
         """One tick box in the "send" or "work" column; None draws an empty cell."""
         cell = tk.Frame(parent, bg=PAPER, width=self.tick_w, height=self.tick_h)
@@ -435,6 +448,7 @@ class VibeNote(tk.Tk):
         if not done:
             self._tick_cell(line, note, "work")
             self._tick_cell(line, None, "send")
+            self._size_tag(line, note)  # by the ticks, so the tags line up in a column
         if done:
             when = nice_date(note["done"]) if note.get("done") else ""
         elif note.get("worked"):
@@ -445,8 +459,6 @@ class VibeNote(tk.Tk):
             tk.Label(line, text=when, font=self.f_small, bg=PAPER,
                      fg=WORK_GREEN if note.get("worked") and not done else FADED_INK
                      ).pack(side="right", padx=(10, 4), anchor="n")
-        if not done:
-            self._size_tag(line, note)
         text = tk.Label(line, text=note["text"], font=self.f_todo, bg=PAPER,
                         fg=FADED_INK if done else INK, anchor="w", justify="left")
         text.pack(side="left", fill="x", expand=True)
