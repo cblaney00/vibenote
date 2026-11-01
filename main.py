@@ -7,6 +7,7 @@ import os
 import subprocess
 from datetime import date
 import threading
+import time
 import tkinter as tk
 from tkinter import font as tkfont
 
@@ -69,8 +70,12 @@ class VibeNote(tk.Tk):
         self.f_small = tkfont.Font(family=SERIF, size=11, slant="italic")
         self.f_button = tkfont.Font(family=SERIF, size=13, weight="bold")
 
+        # The glowing notepad shows while the page is built (his pick, 2026-11-01)
+        loading = Loading(self)
+        self.update()
         self._build_sidebar()
         self._build_page()
+        tk.Misc.lift(loading)  # stays on top of the page being built under it
         self.sync()  # the first one in the open; later ones on a side thread
         self._sort()
         waiting = [p for p in self.projects if self.store.get(p.slug)]
@@ -80,7 +85,12 @@ class VibeNote(tk.Tk):
         self.after(200, self._float)
         self._size = None
         self._redraw_soon = None
-        self.bind("<Configure>", self._resized)
+        # Only the window itself: a plain bind here also fires for every widget inside it,
+        # tens of thousands of times while the page is first laid out
+        self.bindtags(("vibenote-window",) + self.bindtags())
+        self.bind_class("vibenote-window", "<Configure>", self._resized)
+        self._rewrap_all()  # notes wrapped before the notepad goes
+        loading.finish()
 
     def _resized(self, event):
         """On his desktop, parts of the page were left undrawn after the window changed size
@@ -181,8 +191,13 @@ class VibeNote(tk.Tk):
         self._win = self.canvas.create_window(0, 0, window=self.notes_frame, anchor="nw")
         self.notes_frame.bind("<Configure>", lambda e: self.canvas.configure(
             scrollregion=self.canvas.bbox("all")))
-        self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(
-            self._win, width=e.width))
+        self._wrapping, self._wrap_guess, self._rewrap_job = [], {}, None
+
+        def canvas_resized(e):
+            self.canvas.itemconfigure(self._win, width=e.width)
+            self._rewrap_soon()
+
+        self.canvas.bind("<Configure>", canvas_resized)
         self.bind_all("<Button-4>", lambda e: self._scroll(-1))
         self.bind_all("<Button-5>", lambda e: self._scroll(1))
         self.bind_all("<MouseWheel>", lambda e: self._scroll(-1 if e.delta > 0 else 1))
@@ -249,6 +264,8 @@ class VibeNote(tk.Tk):
                 w.bind("<Button-1>", lambda e, proj=p: self.pick(proj))
 
     def _draw_page(self, keep_scroll=False):
+        self._wrapping = []
+        self._rewrap_soon()
         for w in self.notes_frame.winfo_children():
             w.destroy()
         p = self.current
@@ -301,9 +318,6 @@ class VibeNote(tk.Tk):
         dot.pack(side="left", padx=(2, 10), anchor="n")
         text = tk.Label(line, text=note["text"], bg=PAPER, fg=INK, anchor="w", justify="left",
                         font=self.f_note, cursor="xterm")
-        text.pack(side="left", fill="x", expand=True)
-        text.bind("<Configure>", lambda e: text.configure(wraplength=max(e.width - 12, 50)))
-
         self._tick_cell(line, note, "work")
         self._tick_cell(line, note, "send")
         remove = tk.Label(line, text="×", font=self.f_note, bg=PAPER, fg=PAPER, cursor="hand2")
@@ -311,6 +325,9 @@ class VibeNote(tk.Tk):
         move = tk.Label(line, text="Move", font=self.f_small, bg=PAPER, fg=PAPER, cursor="hand2")
         move.pack(side="right", padx=(8, 0), anchor="n", pady=(3, 0))
         self._size_tag(line, note, pady=(3, 0))
+        # The text goes in last, so it gets the room left over and never squeezes the ticks
+        text.pack(side="left", fill="x", expand=True)
+        self._wrap(text)
 
         # Ruled line under each note, like lined paper
         tk.Frame(row, bg=RULE, height=1).pack(fill="x")
@@ -368,6 +385,36 @@ class VibeNote(tk.Tk):
         box.pack(expand=True)
         box.bind("<Button-1>", lambda e: self.tick(note, which, box))
 
+    def _wrap(self, label):
+        """Wrap a note's text to the room it has. All notes are wrapped together in one pass
+        once the page is laid out (_rewrap_all), not each on its own resize: that set off
+        a chain of re-layouts which made the window take ~9 s to open. Until then, the
+        width from the last pass is a close guess."""
+        if label.cget("font") == str(self.f_note):
+            guess = self._wrap_guess.get("note")
+        else:
+            guess = self._wrap_guess.get("todo")
+        if guess:
+            label.configure(wraplength=guess)
+        self._wrapping.append(label)
+
+    def _rewrap_soon(self, _=None):
+        if self._rewrap_job:
+            self.after_cancel(self._rewrap_job)
+        self._rewrap_job = self.after(40, self._rewrap_all)
+
+    def _rewrap_all(self):
+        self._rewrap_job = None
+        self.update_idletasks()  # so every note has its real width
+        for label in self._wrapping:
+            if not label.winfo_exists():
+                continue
+            width = max(label.winfo_width() - 12, 50)
+            kind = "note" if label.cget("font") == str(self.f_note) else "todo"
+            self._wrap_guess[kind] = width
+            if abs(width - int(label.cget("wraplength") or 0)) > 3:
+                label.configure(wraplength=width)
+
     def _size_tag(self, parent, note, pady=0):
         """Small / Medium / Big, once Organize has guessed this note's size."""
         if "size" not in note:
@@ -403,7 +450,7 @@ class VibeNote(tk.Tk):
         text = tk.Label(line, text=note["text"], font=self.f_todo, bg=PAPER,
                         fg=FADED_INK if done else INK, anchor="w", justify="left")
         text.pack(side="left", fill="x", expand=True)
-        text.bind("<Configure>", lambda e: text.configure(wraplength=max(e.width - 12, 50)))
+        self._wrap(text)
 
     def _draw_done(self, done):
         """The Done list as one block of text, not a row of widgets per item: it can run to
@@ -426,7 +473,12 @@ class VibeNote(tk.Tk):
         box.bindtags((str(box), "all"))  # no selecting or scrolling of its own
         box.pack(fill="x", pady=(2, 0))
 
-        def fit(_=None):
+        def fit(e=None):
+            # Only when its width really changed: counting lines is slow, and every
+            # height change sets off another round of layout
+            if e is not None and abs(e.width - getattr(box, "_fit_w", 0)) < 4:
+                return
+            box._fit_w = e.width if e is not None else 0
             lines = box.count("1.0", "end", "displaylines")
             lines = lines[0] if isinstance(lines, tuple) else lines
             if lines and int(box.cget("height")) != lines:
@@ -628,6 +680,61 @@ class VibeNote(tk.Tk):
         self.sending = None
         self.say(f"✓ {msg}" if how == "ok" else msg, ACCENT)
         self.refresh(keep_scroll=True)
+
+
+class Loading(tk.Canvas):
+    """The VibeNote notepad (assets/icon.svg, in pixels), softly pulsing in the middle of the
+    window while it opens. Its page is dimmed from the icon's: he is light sensitive."""
+
+    PIXELS = [  # x, y, width, height, colour, on the 32 x 32 grid of the icon
+        (7, 6, 18, 23, "#1d3b2a"), (8, 7, 16, 21, "#aac59d"), (8, 7, 16, 1, "#bcd6b0"),
+        (8, 27, 16, 1, "#8fb083"), (23, 8, 1, 19, "#9bb98e"), (8, 8, 16, 3, "#4f9e66"),
+        (8, 10, 16, 1, "#3a8653"),
+        (10, 4, 2, 5, "#1d3b2a"), (10, 5, 1, 3, "#86c895"), (15, 4, 2, 5, "#1d3b2a"),
+        (15, 5, 1, 3, "#86c895"), (20, 4, 2, 5, "#1d3b2a"), (20, 5, 1, 3, "#86c895"),
+        (10, 14, 11, 1, "#3f8f58"), (10, 17, 12, 1, "#3f8f58"), (10, 20, 9, 1, "#3f8f58"),
+        (10, 23, 6, 1, "#3f8f58"), (20, 23, 1, 1, "#d6ecd0"),
+    ]
+    GLOW = ["#2a2a1e", "#2f3523", "#334028", "#36492c", "#384f2f"]  # paper -> dim green
+
+    def __init__(self, app, scale=5):
+        super().__init__(app, bg=PAPER, highlightthickness=0)
+        self.app, self.started, self.step = app, time.monotonic(), 0
+        self.place(x=0, y=0, relwidth=1, relheight=1)
+        self.glow = [self.create_rectangle(0, 0, 0, 0, outline="", fill=PAPER)
+                     for _ in range(3)]
+        self.icon = [self.create_rectangle(x * scale, y * scale, (x + w) * scale,
+                                           (y + h) * scale, outline="", fill=c)
+                     for x, y, w, h, c in self.PIXELS]
+        self.scale = scale
+        self.bind("<Configure>", self._centre)
+        self._pulse()
+
+    def _centre(self, e):
+        s = self.scale
+        dx, dy = e.width // 2 - 16 * s, e.height // 2 - 17 * s
+        for item, (x, y, w, h, _) in zip(self.icon, self.PIXELS):
+            self.coords(item, dx + x * s, dy + y * s, dx + (x + w) * s, dy + (y + h) * s)
+        for i, item in enumerate(self.glow):  # three soft layers, widest first
+            pad = (3 - i) * 4
+            self.coords(item, dx + 6 * s - pad, dy + 5 * s - pad, dx + 26 * s + pad,
+                        dy + 29 * s + pad)
+
+    def _pulse(self):
+        if not self.winfo_exists():
+            return
+        n = len(self.GLOW) - 1
+        level = abs(self.step % (2 * n) - n)  # up and down
+        for i, item in enumerate(self.glow):
+            self.itemconfigure(item, fill=self.GLOW[max(level - (2 - i), 0)])
+        self.step += 1
+        self.after(90, self._pulse)
+
+    def finish(self):
+        """Gone once the page is ready, but shown for at least half a second so it never
+        just flickers."""
+        wait = int((0.5 - (time.monotonic() - self.started)) * 1000)
+        self.after(max(wait, 0), self.destroy)
 
 
 class Button(tk.Label):

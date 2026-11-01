@@ -124,3 +124,12 @@ by hiding/showing the page (`_redraw`; this also fixes the undrawn patches XWayl
 after a resize) instead of rebuilding it; the 10 s to-do re-read runs on a side thread
 (`_reread_todo`); the mouse wheel glides (`_scroll`). Rebuild ~50 ms, resize steps ~25 ms.
 Don't bring back per-item widgets for long lists or full rebuilds on resize/ticks.
+
+**Quick start** (his ask, 2026-11-01): it took ~9 s to open. Causes, both fixed: each note
+re-wrapped itself on its own `<Configure>` (a chain of re-layouts) — now all notes wrap in
+one pass (`_rewrap_all`, after a page is drawn or the canvas resizes), and the note text is
+packed *last* in its row so it never squeezes the ticks; and `self.bind("<Configure>")` on
+the window fired for every child widget — now a bindtag only the window has. Opens in
+~0.5 s. A pulsing pixel notepad (`Loading`, his pick: the icon, page dimmed) covers the
+window while it builds, at least 0.5 s so it never flickers. Never bind `<Configure>` per
+note or on the root window again.
