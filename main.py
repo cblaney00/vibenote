@@ -575,7 +575,8 @@ class VibeNote(tk.Tk):
     def _tokens(self, note):
         """The learned guess for one note, at this hour."""
         size = note["size"] if "size" in note else size_score(note["text"])
-        return self.guess.tokens(size, datetime.now().hour)
+        project = self.current.slug if self.current else None
+        return self.guess.tokens(size, datetime.now().hour, project)
 
     def _relearn(self):
         """Every 5 minutes: learn again from Claude's chats (on a side thread: reading them

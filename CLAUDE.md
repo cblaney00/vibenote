@@ -56,12 +56,13 @@ heading is kept on the note (`group`).
 learns how many tokens it uses based on time of day", and "a sign ... if it is a good time to
 claude or not from a token perspective"; his pick: on each tag + a total). In `sender.py`:
 `collect_usage` reads every Claude chat (`/root/.claude/projects/*/*.jsonl`, root only) —
-tokens per reply (cache reads count 1/10, as they are charged), per hour of the day, and each
+tokens Claude *writes* per reply (output only: the count Claude shows him; counting re-read
+context too gave millions, which he called "crazy high", 2026-11-01), per hour of the day, and each
 Work batch (from its "Please work on these items" message to the next one / chat end; these
 run long, so the median is used). `vibenote --collect-usage` (as root) saves that to
 `~/.local/share/vibenote/usage.json`; the Work message asks Claude to run it when a batch is
 done, and VibeNote re-reads it every 5 min on a side thread. `TokenGuess`: tokens = size
-score × learned tokens per point (median over batches) × the hour's factor (his own replies
+score × learned tokens per point (median over that project's batches, else all) × the hour's factor (his own replies
 at that hour vs average, ≥40 replies, 0.75–1.35). Tags read "Big · ~2.4M"; the Work button
 shows the total for the ticked items. The sign (sidebar bottom, `good_time`): *Not a great
 time* on weekday 5–11am Pacific (Anthropic made 5-hour limits run out faster then in March

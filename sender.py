@@ -168,8 +168,9 @@ def start_work(project: Project, items: list[str]) -> str:
 # --- learning how many tokens Claude uses (his ask, 2026-11-01) ---------------------------
 # Claude's chats record the tokens of every reply (/root/.claude/projects/*/*.jsonl; only
 # root can read them, so `vibenote --collect-usage`, run as root, sums them up into USAGE,
-# which VibeNote reads). Tokens are counted the way they are charged: reading from Claude's
-# cache costs about a tenth of a fresh token, so those count a tenth.
+# which VibeNote reads). Tokens are the ones Claude writes (its replies, thinking and code),
+# the count Claude shows him. Counting what it re-reads every step as well gave millions per
+# note, which he called "crazy high" (2026-11-01: his 3-item batch was ~50k, and it was 52.7k).
 
 TRANSCRIPTS = Path(os.environ.get("VIBENOTE_TRANSCRIPTS", "/root/.claude/projects"))
 USAGE = Path(os.environ.get("VIBENOTE_USAGE",
@@ -178,8 +179,7 @@ WORK_START = "Please work on these items from my to-do list"
 
 
 def _weighted(u: dict) -> float:
-    return (u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0)
-            + u.get("output_tokens", 0) + 0.1 * u.get("cache_read_input_tokens", 0))
+    return u.get("output_tokens", 0)
 
 
 def _user_text(msg: dict) -> str:
@@ -217,7 +217,8 @@ def collect_usage(transcripts: Path = TRANSCRIPTS) -> dict:
                     if text.startswith(WORK_START):
                         items = [m.split(". ", 1)[1] for m in text.split("\n")
                                  if m[:1].isdigit() and ". " in m]
-                        batch = {"items": items, "tokens": 0.0, "started": d.get("timestamp")}
+                        batch = {"items": items, "tokens": 0.0, "started": d.get("timestamp"),
+                                 "project": f.parent.name.split("-projects-")[-1]}
                         batches.append(batch)
                     continue
                 u = msg.get("usage")
@@ -281,15 +282,25 @@ class TokenGuess:
     """Turns a note's size guess (store.size_score) into tokens, learned from what his
     Work batches cost, and adjusted for the hour of the day from all his chats."""
 
-    PER_POINT = 40_000  # before any Work batch has been measured
+    PER_POINT = 6_000  # before any Work batch has been measured
 
     def __init__(self, usage: dict | None):
         from store import size_score
         self.usage = usage or {}
-        rates = sorted(b["tokens"] / max(sum(size_score(t) for t in b["items"]), 1)
-                       for b in self.usage.get("batches", []))
-        self.per_point = rates[len(rates) // 2] if rates else self.PER_POINT
-        self.learned = len(rates)
+        def median(xs):
+            xs = sorted(xs)
+            return xs[len(xs) // 2] if xs else None
+
+        # Tokens per point of size, from each Work batch; per project too, since some
+        # projects cost more per change than others (VibeNote ~6.6k, R62D ~3k)
+        rates = {}
+        for b in self.usage.get("batches", []):
+            rate = b["tokens"] / max(sum(size_score(t) for t in b["items"]), 1)
+            rates.setdefault(b.get("project"), []).append(rate)
+        everything = [r for rs in rates.values() for r in rs]
+        self.per_point = median(everything) or self.PER_POINT
+        self.per_project = {p: median(rs) for p, rs in rates.items() if p}
+        self.learned = len(everything)
         hours = {int(h): v for h, v in self.usage.get("hours", {}).items()}
         replies = sum(v[0] for v in hours.values())
         self.average = sum(v[1] for v in hours.values()) / replies if replies else 0
@@ -303,8 +314,9 @@ class TokenGuess:
             return 1.0
         return min(max(tokens / count / self.average, 0.75), 1.35)
 
-    def tokens(self, size: float, hour: int) -> int:
-        return round(max(size, 0.5) * self.per_point * self.hour_factor(hour))
+    def tokens(self, size: float, hour: int, project: str | None = None) -> int:
+        rate = self.per_project.get(project, self.per_point)
+        return round(max(size, 0.5) * rate * self.hour_factor(hour))
 
 
 def short_tokens(n: float) -> str:

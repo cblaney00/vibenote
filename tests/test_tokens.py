@@ -40,13 +40,16 @@ class TokenTest(unittest.TestCase):
     def test_work_batch_is_measured(self):
         [batch] = self.usage["batches"]
         self.assertEqual(batch["items"], ["fix the typo", "add a new level with a boss"])
-        self.assertEqual(batch["tokens"], 1000 + 1000 + 2000 + 1000)  # cache reads count 1/10
+        self.assertEqual(batch["tokens"], 1000 + 2000)  # only what Claude wrote, once each
 
     def test_guess_learns_from_batches(self):
         guess = sender.TokenGuess(self.usage)
         points = size_score("fix the typo") + size_score("add a new level with a boss")
-        self.assertAlmostEqual(guess.per_point, 5000 / points)
+        self.assertAlmostEqual(guess.per_point, 3000 / points)
         self.assertEqual(guess.learned, 1)
+        # learned for that project; another project uses the overall rate
+        self.assertEqual(guess.per_project, {"r62d": 3000 / points})
+        self.assertEqual(guess.tokens(2, 14, "r62d"), round(2 * 3000 / points))
 
     def test_guess_without_data(self):
         guess = sender.TokenGuess(None)
