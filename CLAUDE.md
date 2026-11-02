@@ -71,6 +71,42 @@ time* on weekday 5–11am Pacific (Anthropic made 5-hour limits run out faster t
 over 70% of his busiest 5 hours ever (only if the summary is <20 min old); *OK* when his
 chats use more at this hour; else *Good*.
 
+**Claude usage page** (his ask, 2026-11-02; his pick: click the sign → "Claude usage ›").
+Two accounts, each with a week that refreshes at a set time — his words: **Account 1 refreshes
+Monday 11am; Account 2 "sometime nov 5"** (Thu 11pm is a guess; he can click the refresh line
+to change it). Which email is which is only in `~/.local/share/vibenote/accounts.json` on his
+computer — **never put his emails in this repo: it is public on GitHub.** (His to-do note
+said the reverse numbering; his later answer wins.) Chats don't say which account they used,
+so `collect_usage` keeps `logins` (who `/root/.claude.json` says is logged in, each run and
+from Claude's `backups/`); before the first one seen (2 Nov) everything counts as the account
+marked `earlier` (Account 2). It also keeps tokens per UTC hour per project (`buckets`, 21
+days) and every limit hit (`hits`, with Claude's own reset times). `usage_report`: per account
+used since its refresh, by project and day, pace, projection to the refresh, the weekly limit
+(exact once a `seven_day` limit is hit; until then "at least" the biggest week seen), a daily
+budget, on/off track, and which to use now (the one whose week ends soonest, if it has room).
+A 5-hour window = median of what was written in the 5 h before each 5-hour hit. The Work
+warning shows the request's guess and what it does to the logged-in account (`_usage_after`).
+
+**Find** (Ctrl+F, his ask): a box over the page; every note in every project (and its
+snapshot) with all the words, lit up; click one to open its project; Esc goes back.
+
+**Summary** ("Summary ›" next to the counts; his ask: "grab past notes about each project so
+that the information can be condensed"): all the project's notes ever, grouped like
+Organize, each said shorter, open ones first; "Copy the open ones for Claude" copies them.
+**Said shorter for Claude** (his ask: "summarizes everything i said into a language that
+claude can easily understand"): `store.condense` drops filler ("i think", "just", "really"),
+shortens phrasings ("there should be" → "add"), fixes common slips ("dont", "sheild"); the
+Work message uses it, the to-do list keeps his words. The saving is small (a few %), as most
+tokens are Claude's work, not the message.
+
+**Snapshots** (his ask: "when i take notes, make the app take a screenshot of what was
+happening in the project"): each new note keeps `snap` (`sender.snapshot`, on a side thread):
+the time, git branch, last commit and its message, files changed since, and what the
+project's Claude chat was doing (Glade state file). Shown as a faint line while the mouse is
+over the note (his pick); click it for `SnapshotDetails`. Older notes have none.
+
+**Spelling check of the UI**: he asked for it, then said to disregard it (2026-11-02); not done.
+
 Earlier picks: he chooses the project for each note himself (no guessing); the window floats freely.
 
 **It must work without Claude** (his ask): writing and sorting notes never uses Claude; only
@@ -116,7 +152,7 @@ shows "Claude on it · date". Clicking a column title ticks or unticks the whole
   way `vibe` does, reading the launchers, hooks and session rules out of the installed
   `vibe` script so it follows rebuilds. It asks for his sudo password in that terminal.
 - `run.sh` — starts the app through the dev shell (what the menu entry runs).
-- `tests/` — tests for the notes and the to-do files.
+- `tests/` — tests for the notes, the to-do files, tokens and usage.
 
 Run: `./run.sh` (or `nix develop /home/insideabush/nixos-config#vibe-python --command python main.py`)
 Test: `nix develop /home/insideabush/nixos-config#vibe-python --command python -m unittest discover -s tests`

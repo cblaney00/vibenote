@@ -174,6 +174,54 @@ def group_notes(notes: list[dict]) -> list[tuple[str, list[dict]]]:
     return groups
 
 
+# --- his words, said shorter for Claude (his ask, 2026-11-02: "summarizes everything i said
+# into a language that claude can easily understand and simplify to save on tokens") ---
+# Plain rules, no Claude: drop filler, say common phrasings shorter, fix common slips.
+# Meaning is never dropped: only words that add nothing for Claude go.
+FILLER = [
+    r"i think (that )?", r"i feel like ", r"i guess ", r"i want (you )?to ", r"can you ",
+    r"could you ", r"please ", r"maybe ", r"kind of ", r"sort of ", r"basically ",
+    r"just ", r"really ", r"actually ", r"literally ", r"pretty much ", r"you know,? ",
+    r"like,? ", r"\bso,? ", r"\bum+,? ", r"\buh+,? ", r"or something( like that)?",
+]
+SHORTER = [
+    (r"make sure (that )?", "ensure "), (r"it should be possible to ", "allow players to "),
+    (r"there should be ", "add "), (r"should be able to ", "can "), (r"in order to ", "to "),
+    (r"a lot of ", "many "), (r"at the moment", "now"), (r"right now", "now"),
+    (r"as well as ", "and "), (r"the fact that ", ""), (r"all of the ", "all "),
+    (r"is going to ", "will "), (r"are going to ", "will "), (r"\bgonna\b", "will"),
+    (r"\bwanna\b", "want to"),
+]
+SLIPS = {
+    "dont": "don't", "doesnt": "doesn't", "cant": "can't", "wont": "won't", "isnt": "isn't",
+    "shouldnt": "shouldn't", "didnt": "didn't", "theyre": "they're", "youre": "you're",
+    "im": "I'm", "ive": "I've", "id": "I'd", "i": "I", "u": "you", "ur": "your",
+    "teh": "the", "recieve": "receive", "seperate": "separate", "definately": "definitely",
+    "wierd": "weird", "untill": "until", "alot": "a lot", "thier": "their",
+    "sheild": "shield", "gadjets": "gadgets", "ernestly": "earnestly",
+    "theives": "thieves", "refesh": "refresh", "refeshes": "refreshes", "ableto": "able to",
+    "thru": "through", "becuase": "because", "becasue": "because",
+}
+
+
+def condense(text: str) -> str:
+    """His note, said shorter and clearer for Claude."""
+    t = " " + " ".join(text.split()) + " "
+    for pattern in FILLER:
+        t = re.sub(r"(?i)(?<=[\s,(])" + pattern, "", t)
+    for pattern, new in SHORTER:
+        t = re.sub(r"(?i)(?<=[\s,(])" + pattern, new, t)
+    t = re.sub(r"[A-Za-z']+", lambda m: SLIPS.get(m.group(0).lower(), m.group(0)), t)
+    t = re.sub(r"\s+([,.!?])", r"\1", " ".join(t.split()))
+    t = re.sub(r"([,.!?])\1+", r"\1", t)
+    return (t[:1].upper() + t[1:]) if t else text
+
+
+def tokens_in(text: str) -> int:
+    """About how many tokens Claude reads for a text (roughly 4 letters per token)."""
+    return max(1, round(len(text) / 4))
+
+
 class Store:
     """All notes, per project folder name. Every change is saved straight away."""
 
@@ -220,6 +268,13 @@ class Store:
         self.notes.setdefault(slug, []).append(note)
         self.save()
         return note
+
+    def set_snapshot(self, slug: str, note_id: str, snap: dict):
+        """What the project was like when he wrote the note (his ask, 2026-11-02)."""
+        for note in self.all(slug):
+            if note["id"] == note_id:
+                note["snap"] = snap
+        self.save()
 
     def edit(self, slug: str, note_id: str, text: str):
         if not text.strip():

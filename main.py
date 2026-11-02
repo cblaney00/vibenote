@@ -15,7 +15,7 @@ from tkinter import font as tkfont
 
 import projects
 import sender
-from store import Store, size_label, size_score
+from store import Store, condense, group_notes, size_label, size_score, tokens_in
 
 # Dark warm colours (his ask, 2026-10-30: "darker, i like warm colors but it cant hurt my
 # eyes, im light sensitive"): deep brown, soft cream text (never white), muted terracotta.
@@ -150,6 +150,12 @@ class VibeNote(tk.Tk):
         self.sign_why = tk.Label(sign, font=self.f_small, bg=SIDEBAR, fg=FADED_INK, anchor="w",
                                  justify="left", wraplength=184)
         self.sign_why.pack(fill="x")
+        self.sign_more = tk.Label(sign, text="Claude usage ›", font=self.f_small, bg=SIDEBAR,
+                                  fg=ACCENT, anchor="w", cursor="hand2")
+        self.sign_more.pack(fill="x", pady=(4, 0))
+        for w in (sign, self.sign_title, self.sign_why, self.sign_more):
+            w.configure(cursor="hand2")
+            w.bind("<Button-1>", lambda e: self.show("usage"))
 
         self.list_box = tk.Frame(side, bg=SIDEBAR)
         self.list_box.pack(fill="both", expand=True)
@@ -166,12 +172,33 @@ class VibeNote(tk.Tk):
 
         self.title_label = tk.Label(body, font=self.f_title, bg=PAPER, fg=INK, anchor="w")
         self.title_label.pack(fill="x")
-        self.count_label = tk.Label(body, font=self.f_small, bg=PAPER, fg=FADED_INK, anchor="w")
-        self.count_label.pack(fill="x", pady=(0, 14))
+        count_row = tk.Frame(body, bg=PAPER)
+        count_row.pack(fill="x", pady=(0, 14))
+        self.count_label = tk.Label(count_row, font=self.f_small, bg=PAPER, fg=FADED_INK,
+                                    anchor="w")
+        self.count_label.pack(side="left")
+        # "Summary" on a project page, "← Back" on the others
+        self.page_link = tk.Label(count_row, font=self.f_small, bg=PAPER, fg=ACCENT,
+                                  cursor="hand2")
+        self.page_link.pack(side="left", padx=(12, 0))
+        self.page_link.bind("<Button-1>", lambda e: self._page_link())
+        self.view = None  # None: the project's notes; else "usage", "find" or "summary"
+
+        # Box for finding notes in every project (Ctrl+F, his ask), shown instead of the
+        # note box while finding
+        self.find_row = tk.Frame(body, bg=FIELD, highlightthickness=1, highlightbackground=ACCENT)
+        self.find_entry = tk.Entry(self.find_row, font=self.f_note, bg=FIELD, fg=INK,
+                                   insertbackground=INK, relief="flat", highlightthickness=0)
+        self.find_entry.pack(fill="x", ipady=8, padx=10)
+        self.find_entry.bind("<KeyRelease>", lambda e: e.keysym != "Escape" and self._draw_page())
+        self.find_entry.bind("<Escape>", lambda e: self.show(None))
+        self.bind_all("<Control-f>", lambda e: self.show("find"))
+        self.bind_all("<Control-F>", lambda e: self.show("find"))
 
         # Box for typing a new note
         entry_row = tk.Frame(body, bg=FIELD, highlightthickness=1, highlightbackground=RULE)
         entry_row.pack(fill="x", pady=(0, 10))
+        self.entry_row = entry_row
         self.entry = tk.Entry(entry_row, font=self.f_note, bg=FIELD, fg=INK,
                               insertbackground=INK, relief="flat", highlightthickness=0)
         self.entry.pack(fill="x", ipady=8, padx=10)
@@ -185,6 +212,7 @@ class VibeNote(tk.Tk):
         # (Claude starts on the list, uses tokens: he has to agree first)
         bottom = tk.Frame(body, bg=PAPER)
         bottom.pack(side="bottom", fill="x", pady=(10, 0))
+        self.bottom = bottom
         self.work_btn = Button(bottom, self.f_button, self.work, main=True)
         self.work_btn.pack(side="right")
         self.send_btn = Button(bottom, self.f_button, self.send, main=False)
@@ -200,6 +228,7 @@ class VibeNote(tk.Tk):
         # Scrolling area for the notes and the project's to-do list
         holder = tk.Frame(body, bg=PAPER)
         holder.pack(fill="both", expand=True)
+        self.holder = holder
         self.canvas = tk.Canvas(holder, bg=PAPER, highlightthickness=0, yscrollincrement=6)
         self.canvas.pack(side="left", fill="both", expand=True)
         self.notes_frame = tk.Frame(self.canvas, bg=PAPER)
@@ -264,7 +293,7 @@ class VibeNote(tk.Tk):
             w.destroy()
         self._sort()
         for p in self.projects:
-            picked = p is self.current
+            picked = p is self.current and self.view is None
             waiting = len(self.store.get(p.slug))
             bg = SIDEBAR_PICKED if picked else SIDEBAR
             row = tk.Frame(self.list_box, bg=bg, cursor="hand2")
@@ -278,11 +307,47 @@ class VibeNote(tk.Tk):
             for w in (row, name, num):
                 w.bind("<Button-1>", lambda e, proj=p: self.pick(proj))
 
+    def show(self, view):
+        """Switch the main area: None (the project's notes), "usage", "find", "summary"."""
+        self.view = view
+        on_notes = view is None
+        self.find_row.pack_forget()
+        self.entry_row.pack_forget()
+        self.bottom.pack_forget()
+        self.holder.pack_forget()
+        if view == "find":
+            self.find_row.pack(fill="x", pady=(0, 10))
+        if on_notes:
+            self.entry_row.pack(fill="x", pady=(0, 10))
+            self.bottom.pack(side="bottom", fill="x", pady=(10, 0))
+        self.holder.pack(fill="both", expand=True)
+        self.say("")
+        self.refresh()
+        if view == "find":
+            self.find_entry.focus_set()
+            self.find_entry.select_range(0, "end")
+        return "break"
+
+    def _page_link(self):
+        if self.view is None:
+            self.show("summary")
+        else:
+            self.show(None)
+
     def _draw_page(self, keep_scroll=False):
         self._wrapping = []
         self._rewrap_soon()
         for w in self.notes_frame.winfo_children():
             w.destroy()
+        back = f"← Back to {self.current.title}" if self.current else "← Back"
+        if self.view:
+            self.page_link.configure(text=back)
+            {"usage": self._draw_usage, "find": self._draw_find,
+             "summary": self._draw_summary}[self.view]()
+            if not keep_scroll:
+                self.canvas.yview_moveto(0)
+            return
+        self.page_link.configure(text="Summary ›" if self.current else "")
         p = self.current
         if p is None:
             self.title_label.configure(text="No projects yet")
@@ -329,6 +394,244 @@ class VibeNote(tk.Tk):
         if not keep_scroll:
             self.canvas.yview_moveto(0)
 
+    # --- the other pages: Claude usage, Find, Summary --------------------------
+
+    def _line(self, text, font=None, fg=INK, pady=(0, 2), padx=0, wrap=True, link=None):
+        label = tk.Label(self.notes_frame, text=text, font=font or self.f_todo, bg=PAPER, fg=fg,
+                         anchor="w", justify="left")
+        label.pack(fill="x", pady=pady, padx=padx)
+        if wrap:
+            self._wrap(label)
+        if link:
+            label.configure(cursor="hand2")
+            label.bind("<Button-1>", lambda e: link())
+        return label
+
+    def _title_of(self, slug):
+        if slug == "computer":
+            return "Your computer (setup)"
+        return next((p.title for p in self.projects if p.slug == slug), slug)
+
+    def _report(self, extra=0):
+        return sender.usage_report(self.guess.usage, sender.load_accounts(), extra=extra)
+
+    def _usage_after(self, cost):
+        """For the Work warning: what this request does to the account logged in now (his
+        ask: "if the session will set me off track")."""
+        report = self._report(extra=cost)
+        acc = next((a for a in report["accounts"] if a["logged_in"]), None)
+        if acc is None:
+            return ""
+        t = sender.short_tokens
+        text = (f"{acc['name']} (logged in now) after this: {t(acc['used'])} used this week. "
+                f"At your pace that is {t(acc['projected'])} by its refresh "
+                f"({sender.refresh_text(acc)})")
+        if acc["limit"]:
+            if acc["on_track"]:
+                text += f", within the {t(acc['limit'])} it can do. On track."
+            else:
+                text += (f", more than the {t(acc['limit'])} it can do: off track. Keep to "
+                         f"{t(acc['daily_budget'])} a day.")
+        else:
+            text += "."
+        if report["use_now"] and report["use_now"] != acc["name"]:
+            text += f" Better to use {report['use_now']} first: its week ends sooner."
+        return text
+
+    def _draw_usage(self):
+        """Claude usage, broken down, for both accounts (his ask, 2026-11-02)."""
+        t = sender.short_tokens
+        report = self._report()
+        usage = self.guess.usage or {}
+        self.title_label.configure(text="Claude usage")
+        try:
+            updated = datetime.fromisoformat(usage["updated"]).astimezone().strftime("%-d %b %H:%M")
+        except (KeyError, ValueError):
+            updated = "never"
+        self.count_label.configure(text=f"Tokens Claude wrote, from your chats · updated {updated}")
+        if not usage:
+            self._line("No usage learned yet. It appears after Claude finishes a Work batch.",
+                       fg=FADED_INK)
+            return
+        logged = next((a for a in report["accounts"] if a["logged_in"]), None)
+        if report["use_now"]:
+            best = next(a for a in report["accounts"] if a["name"] == report["use_now"])
+            why = (f"its week ends sooner ({sender.refresh_text(best)}), and what it doesn't "
+                   "use is lost then")
+            self._line(f"Use {best['name']} now: {why}.", font=self.f_note, fg=WORK_GREEN,
+                       pady=(0, 2))
+        if logged:
+            self._line(f"Logged in to Claude now: {logged['name']} ({logged['email']})",
+                       fg=FADED_INK, pady=(0, 6))
+        last5 = usage.get("last5h", 0)
+        if report["five_hour"]:
+            self._line(f"Last 5 hours: {t(last5)} of the {t(report['five_hour'])} a 5-hour "
+                       f"window holds (learned from the {len(usage.get('five_hour_fills', []))} "
+                       "times you hit one).", fg=INK, pady=(0, 4))
+
+        for a in report["accounts"]:
+            self._heading(f"{a['name']} · {a['email']}" + (" · logged in now" if a["logged_in"]
+                                                            else ""))
+            left = a["end"] - datetime.now().astimezone()
+            d, h = left.days, left.seconds // 3600
+            refresh = self._line(
+                f"Week refreshes {sender.refresh_text(a)}"
+                + (" (a guess, click to change)" if a.get("guess") else " (click to change)")
+                + f" · in {d} d {h} h", fg=FADED_INK)
+            refresh.configure(cursor="hand2")
+            refresh.bind("<Button-1>", lambda e, acc=a, lab=refresh: self._edit_refresh(acc, lab))
+            self._line(f"Used this week: {t(a['used'])} · your pace: {t(a['pace'])} a day")
+            if a["weekly_learned"]:
+                limit_text = f"its weekly limit, {t(a['limit'])}"
+            elif a["limit"]:
+                limit_text = (f"at least {t(a['limit'])}: the most you've used in a week without "
+                              "hitting the limit, so the real one is bigger")
+            else:
+                limit_text = None
+            self._line(f"At this pace by the refresh: {t(a['projected'])}")
+            if limit_text:
+                self._line(f"A week can hold {limit_text}.", fg=FADED_INK)
+                state = ("On track" if a["on_track"] else "Off track: you'll run out first")
+                self._line(f"{state} · to last the week: {t(a['daily_budget'])} a day for "
+                           f"the {max(a['days_left'], 0):.1f} days left",
+                           fg=WORK_GREEN if a["on_track"] else ACCENT)
+            if a["projects"]:
+                parts = sorted(a["projects"].items(), key=lambda kv: -kv[1])
+                self._line("By project: " + " · ".join(f"{self._title_of(k)} {t(v)}"
+                                                       for k, v in parts), fg=FADED_INK)
+            if a["days"]:
+                self._line("By day: " + " · ".join(f"{k} {t(v)}" for k, v in a["days"].items()),
+                           fg=FADED_INK)
+        self._line("Which account was logged in is only known from 2 Nov; before that it "
+                   "counts as Account 2. The numbers get better as VibeNote sees more.",
+                   font=self.f_small, fg=FADED_INK, pady=(18, 0))
+
+    def _edit_refresh(self, acc, label):
+        box = tk.Entry(self.notes_frame, font=self.f_todo, bg=FIELD, fg=INK, relief="flat",
+                       insertbackground=INK, highlightthickness=1, highlightbackground=RULE,
+                       highlightcolor=ACCENT)
+        box.insert(0, sender.refresh_text(acc))
+        box.pack(after=label, fill="x", pady=(0, 4))
+        box.focus_set()
+        box.select_range(0, "end")
+        self.say("Type the day and time, like \u201cThu 11pm\u201d, and press Enter.")
+
+        def save(_=None):
+            when = sender.parse_refresh(box.get())
+            if when is None:
+                self.say("Couldn't read that; try like \u201cThu 11pm\u201d.", ACCENT)
+                return
+            accounts = sender.load_accounts()
+            for a in accounts:
+                if a["email"] == acc["email"]:
+                    a.update(when, guess=False)
+            sender.save_accounts(accounts)
+            self.say(f"✓ {acc['name']} refreshes {sender.refresh_text({**acc, **when})}", ACCENT)
+            self.refresh(keep_scroll=True)
+
+        box.bind("<Return>", save)
+        box.bind("<Escape>", lambda e: self.refresh(keep_scroll=True))
+
+    def _draw_find(self):
+        """Every note in every project with these words (Ctrl+F, his ask)."""
+        query = self.find_entry.get().strip().lower()
+        self.title_label.configure(text="Find")
+        if not query:
+            self.count_label.configure(text="Type to find notes in every project · Esc to go back")
+            return
+        words = query.split()
+        hits = []
+        for p in self.projects:
+            for n in self.store.all(p.slug):
+                hay = (n["text"] + " " + sender.snapshot_line(n["snap"]) if n.get("snap")
+                       else n["text"]).lower()
+                if all(w in hay for w in words):
+                    hits.append((p, n))
+        self.count_label.configure(text=f"{len(hits)} found · click one to open its project")
+        box = tk.Text(self.notes_frame, bg=PAPER, fg=INK, font=self.f_todo, wrap="word",
+                      relief="flat", bd=0, highlightthickness=0, height=1, cursor="arrow",
+                      spacing3=8)
+        box.tag_configure("where", foreground=ACCENT, font=self.f_small)
+        box.tag_configure("hit", background=SIDEBAR_PICKED, foreground=INK)
+        box.tag_configure("when", foreground=FADED_INK, font=self.f_small)
+        mark = {"waiting": "waiting", "sent": "on its list", "done": "done"}
+        for i, (p, n) in enumerate(hits[:200]):
+            tag = f"go{i}"
+            box.insert("end", f"{p.title} · {mark[n['status']]}\n", ("where", tag))
+            start = box.index("end-1c")
+            box.insert("end", n["text"], tag)
+            for w in words:  # light up the words he looked for
+                at = start
+                while True:
+                    at = box.search(w, at, stopindex="end", nocase=True)
+                    if not at:
+                        break
+                    box.tag_add("hit", at, f"{at}+{len(w)}c")
+                    at = f"{at}+{len(w)}c"
+            if n.get("snap"):
+                box.insert("end", "\n" + sender.snapshot_line(n["snap"]), ("when", tag))
+            box.insert("end", "\n")
+            box.tag_bind(tag, "<Button-1>", lambda e, proj=p: self.pick(proj))
+            box.tag_bind(tag, "<Enter>", lambda e: box.configure(cursor="hand2"))
+            box.tag_bind(tag, "<Leave>", lambda e: box.configure(cursor="arrow"))
+        box.configure(state="disabled")
+        box.bindtags((str(box), "all"))
+        box.pack(fill="x")
+        self._fit_text(box)
+
+    def _fit_text(self, box):
+        def fit(e=None):
+            if e is not None and abs(e.width - getattr(box, "_fit_w", 0)) < 4:
+                return
+            box._fit_w = e.width if e is not None else 0
+            lines = box.count("1.0", "end", "displaylines")
+            lines = lines[0] if isinstance(lines, tuple) else lines
+            if lines and int(box.cget("height")) != lines:
+                box.configure(height=lines)
+        box.bind("<Configure>", fit)
+
+    def _draw_summary(self):
+        """Everything ever noted for this project, condensed (his ask, 2026-11-02): grouped by
+        what it is about, each said shorter, and the open ones ready to copy for Claude."""
+        p = self.current
+        self.title_label.configure(text=f"{p.title}: summary")
+        notes = self.store.all(p.slug)
+        open_notes = [n for n in notes if n["status"] != "done"]
+        mine = " ".join(n["text"] for n in open_notes)
+        short = "\n".join(f"- {condense(n['text'])}" for n in open_notes)
+        self.count_label.configure(
+            text=f"{len(notes)} notes · {len(open_notes)} open · for Claude: "
+                 f"~{tokens_in(mine)} → ~{tokens_in(short)} tokens")
+        if open_notes:
+            copy = Button(self.notes_frame, self.f_button, lambda: self._copy(short), main=False)
+            copy.set("Copy the open ones for Claude")
+            copy.pack(anchor="w", pady=(0, 6))
+        status = {"waiting": "•", "sent": "→", "done": "✓"}
+        groups = group_notes([dict(n) for n in notes])
+        groups.sort(key=lambda g: (g[0] == "On their own", -len(g[1])))
+        box = tk.Text(self.notes_frame, bg=PAPER, fg=INK, font=self.f_todo, wrap="word",
+                      relief="flat", bd=0, highlightthickness=0, height=1, cursor="arrow",
+                      spacing3=5)
+        box.tag_configure("head", foreground=ACCENT, font=self.f_small, spacing1=12)
+        box.tag_configure("done", foreground=FADED_INK)
+        box.tag_configure("item", lmargin1=8, lmargin2=26)
+        for heading, members in groups:
+            open_n = sum(m["status"] != "done" for m in members)
+            box.insert("end", f"{heading} · {len(members)} notes, {open_n} open\n", "head")
+            for m in sorted(members, key=lambda m: m["status"] == "done"):
+                tags = ("item", "done") if m["status"] == "done" else ("item",)
+                box.insert("end", f"{status[m['status']]}  {condense(m['text'])}\n", tags)
+        box.delete("end-2c")
+        box.configure(state="disabled")
+        box.bindtags((str(box), "all"))
+        box.pack(fill="x")
+        self._fit_text(box)
+
+    def _copy(self, text):
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self.say("✓ Copied: paste it into a Claude chat", ACCENT)
+
     def _draw_note(self, note):
         row = tk.Frame(self.notes_frame, bg=PAPER)
         row.pack(fill="x")
@@ -359,16 +662,43 @@ class VibeNote(tk.Tk):
         for w in (row, line, dot, text):
             w.bind("<Button-3>", lambda e: self.move_menu(note, e))
 
-        # "Move" and × only show while the mouse is over the note
+        # The snapshot taken when he wrote it: a faint line, shown while the mouse is over the
+        # note (his pick); click it for everything
+        snap_line = None
+        if note.get("snap"):
+            snap_line = tk.Label(row, text=sender.snapshot_line(note["snap"]),
+                                 font=self.f_small, bg=PAPER, fg=FADED_INK, anchor="w",
+                                 cursor="hand2")
+            snap_line.bind("<Button-1>", lambda e: SnapshotDetails(self, note))
+        hiding = []
+
+        # "Move", × and the snapshot only show while the mouse is over the note
         def show(_):
+            for job in hiding:
+                self.after_cancel(job)
+            hiding.clear()
             remove.configure(fg=FADED_INK)
             move.configure(fg=FADED_INK)
+            if snap_line is not None and not snap_line.winfo_ismapped():
+                snap_line.configure(wraplength=max(row.winfo_width() - 40, 100),
+                                    justify="left")
+                snap_line.pack(fill="x", padx=(28, 0), pady=(0, 4), after=line)
 
-        def hide(_):
+        def hide_now():
+            hiding.clear()
+            if not row.winfo_exists():
+                return
             remove.configure(fg=PAPER)
             move.configure(fg=PAPER)
+            if snap_line is not None:
+                snap_line.pack_forget()
 
-        for w in (row, line, dot, text, remove, move):
+        def hide(_):
+            # a moment's wait: moving between the parts of a note leaves one and enters
+            # another, and the line should not flicker
+            hiding.append(self.after(120, hide_now))
+
+        for w in (row, line, dot, text, remove, move) + ((snap_line,) if snap_line else ()):
             w.bind("<Enter>", show, add="+")
             w.bind("<Leave>", hide, add="+")
         remove.bind("<Enter>", lambda e: remove.configure(fg=ACCENT), add="+")
@@ -628,16 +958,34 @@ class VibeNote(tk.Tk):
 
     def pick(self, project):
         self.current = project
-        self.say("")
-        self.refresh()
+        self.show(None)
 
     def add_note(self):
         text = self.entry.get()
         if text == self._placeholder and self.entry.cget("fg") == FADED_INK:
             return
-        if self.current and self.store.add(self.current.slug, text):
+        note = self.current and self.store.add(self.current.slug, text)
+        if note:
             self.entry.delete(0, "end")
             self.refresh(keep_scroll=True)
+            self._take_snapshot(self.current, note)
+
+    def _take_snapshot(self, project, note):
+        """Note down what the project was like right now (git and its Claude chat), on a side
+        thread so typing never waits."""
+        found = []
+        taker = threading.Thread(target=lambda: found.append(sender.snapshot(project)),
+                                 daemon=True)
+        taker.start()
+
+        def apply():
+            if taker.is_alive():
+                self.after(100, apply)
+            elif found:
+                self.store.set_snapshot(project.slug, note["id"], found[0])
+                if self.view is None and self.current is project:
+                    self.refresh(keep_scroll=True)
+        self.after(100, apply)
 
     def tick(self, note, which, box):
         """Flip one tick. Only that box and the buttons change; the page is not rebuilt."""
@@ -740,7 +1088,9 @@ class VibeNote(tk.Tk):
             return
         extra = (f", including {len(waiting)} note{'s' * (len(waiting) != 1)} not sent yet, "
                  "which get added to its list first" if waiting else "")
-        if not TokenWarning(self, p.title, len(chosen), extra).agreed:
+        cost = sum(self._tokens(n) for n in chosen)
+        if not TokenWarning(self, p.title, len(chosen), extra, cost,
+                            self._usage_after(cost)).agreed:
             self.say("Nothing sent to Claude.")
             return
         if waiting and not self._send(p, waiting):
@@ -853,10 +1203,53 @@ class Button(tk.Label):
                        cursor="hand2" if self.enabled else "arrow")
 
 
+class SnapshotDetails(tk.Toplevel):
+    """Everything the snapshot saw when he wrote the note, so the moment can be looked up."""
+
+    def __init__(self, app, note):
+        super().__init__(app, bg=PAPER, padx=28, pady=22)
+        self.title("When this note was written")
+        self.transient(app)
+        snap = note["snap"]
+        rows = [("Note", note["text"])]
+        try:
+            rows.append(("Written", datetime.fromisoformat(snap["at"]).strftime(
+                "%A %-d %B %Y, %H:%M")))
+        except (KeyError, ValueError):
+            pass
+        if snap.get("commit"):
+            rows += [("Code", f"branch {snap.get('branch') or '?'}, last saved as "
+                              f"{snap['commit']} \u201c{snap['subject']}\u201d ({snap['saved']})"),
+                     ("Changes", f"{snap.get('changed', 0)} files changed since that save")]
+        chat = snap.get("claude")
+        if chat:
+            rows += [("Claude", f"{'working on' if chat['working'] else 'was on'}: "
+                                f"{chat['title']}" + (f" · now: {chat['now']}" if chat["now"]
+                                                      else "")),
+                     ("It said", chat["said"])]
+        else:
+            rows.append(("Claude", "no chat was open for this project"))
+        for name, value in rows:
+            line = tk.Frame(self, bg=PAPER)
+            line.pack(fill="x", pady=2)
+            tk.Label(line, text=name, font=app.f_small, bg=PAPER, fg=ACCENT, width=9,
+                     anchor="nw").pack(side="left", anchor="n")
+            tk.Label(line, text=value, font=app.f_todo, bg=PAPER, fg=INK, justify="left",
+                     wraplength=440, anchor="w").pack(side="left", fill="x")
+        if snap.get("commit"):
+            tk.Label(self, text=f"Claude can look this moment up: ask it about save point "
+                                f"{snap['commit']}.", font=app.f_small, bg=PAPER, fg=FADED_INK,
+                     anchor="w").pack(fill="x", pady=(10, 0))
+        close = Button(self, app.f_button, self.destroy, main=False)
+        close.set("Close")
+        close.pack(anchor="e", pady=(14, 0))
+        self.bind("<Escape>", lambda e: self.destroy())
+
+
 class TokenWarning(tk.Toplevel):
     """Asks him to agree before Work uses his Claude tokens. .agreed says what he chose."""
 
-    def __init__(self, app, title, total, extra):
+    def __init__(self, app, title, total, extra, cost=0, usage_text=""):
         super().__init__(app, bg=PAPER, padx=28, pady=22)
         self.agreed = False
         self.title("This uses your tokens")
@@ -870,7 +1263,15 @@ class TokenWarning(tk.Toplevel):
                             "until they are done or you stop it, using your tokens as it "
                             "works. If no Claude chat is open for it, a new terminal opens.",
                  font=app.f_todo, bg=PAPER, fg=INK, justify="left", wraplength=420,
-                 anchor="w").pack(fill="x", pady=(10, 18))
+                 anchor="w").pack(fill="x", pady=(10, 10))
+        if cost:
+            tk.Label(self, text=f"VibeNote's guess: {sender.short_tokens(cost)} tokens.",
+                     font=app.f_todo, bg=PAPER, fg=ACCENT, justify="left", wraplength=420,
+                     anchor="w").pack(fill="x")
+        if usage_text:
+            tk.Label(self, text=usage_text, font=app.f_small, bg=PAPER, fg=INK, justify="left",
+                     wraplength=420, anchor="w").pack(fill="x", pady=(4, 0))
+        tk.Frame(self, bg=PAPER, height=14).pack()
 
         row = tk.Frame(self, bg=PAPER)
         row.pack(fill="x")
@@ -899,7 +1300,7 @@ class TokenWarning(tk.Toplevel):
 if __name__ == "__main__":
     if "--collect-usage" in sys.argv:
         # Run as root (by Claude at the end of a Work batch): learn from Claude's chats
-        sender.save_usage(sender.collect_usage())
+        sender.save_usage(sender.collect_usage(previous=sender.load_saved_usage()))
         print(f"VibeNote: token use saved to {sender.USAGE}")
     else:
         VibeNote().mainloop()

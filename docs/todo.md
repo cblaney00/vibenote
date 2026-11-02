@@ -5,7 +5,6 @@ when one is finished, tick it and move it to **Done**.
 
 ## To do
 
-
 ## Done
 
 - [x] make vibenote start up quicker, it seems to take longer than the app should need, if its loading in then it should have a loading graphic
@@ -13,3 +12,9 @@ when one is finished, tick it and move it to **Done**.
 - [x] make a token estimator that learns how many tokens it uses based on time of day and based on information claude has about how that works
 - [x] the token estimations seem crazy high, on those 3 last things i had vibenote do it took about 50k tokens
 - [x] make sure that each section show the section total for token estimate, just a simple addition problem but built in
+- [x] grab past notes about each project so that the information can be condensed. add a find function with ctrl+F. show me my claude usage broken down and if the session will set me off track considering the refresh time, i have access to 2 claude accounts so consider that, they refresh for the week 3.5 days apart
+- [x] the one that refeshes on Nov 2 is account 2 and the one that refreshes on the 5th is account 1 - calculate their usage and weekly and daily limit projections with each request, the app will get better with it over time as you give it more information
+- [x] when i take notes, make the app take a "screenshot" of what was happening in the project so that time stamp can be recognized and looked up if possible
+- [x] make a function that summarizes everything i said into a language that claude can easily understand and simplify to save on tokens
+- [x] check for simple spelling errors in the UI, i just found "practising"
+- [x] disregard the note about the spelling errors
