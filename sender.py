@@ -139,14 +139,16 @@ def _focus(chain):
 
 # --- no chat open: start one --------------------------------------------------------------
 
-def open_new_chat(project: Project, text: str):
-    """A new terminal with Claude on the project (its last chat, else a fresh one), given `text`."""
+def open_new_chat(project: Project, text: str, fresh: bool = False):
+    """A new terminal with Claude on the project (its last chat, else a fresh one; always a
+    fresh one if `fresh`), given `text`."""
     OUTBOX.mkdir(parents=True, exist_ok=True)
     msg = OUTBOX / f"to-{project.slug}-{int(time.time())}.txt"
     msg.write_text(text)
     subprocess.Popen(
         [kitty_cmd(), "--title", f"{project.title} · Claude", "--directory", str(project.path),
-         "bash", str(HERE / "open_chat.sh"), str(project.path), project.title, str(msg)],
+         "bash", str(HERE / "open_chat.sh"), str(project.path), project.title, str(msg)]
+        + (["fresh"] if fresh else []),
         start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL)
 
@@ -156,15 +158,90 @@ def add_to_list(project: Project, notes: list[str]) -> Path:
     return project.add_to_todo(notes)
 
 
-def start_work(project: Project, items: list[str]) -> str:
+# --- starting a chat fresh when it has grown long (his ask, 2026-11-02: "make sure that the
+# cache is cleared for each project often but not all the time, i just dont want the
+# referencing to take too many tokens") ---
+# Every step Claude takes re-reads the whole chat so far. A fresh chat re-reads ~60k (its
+# rules and the project notes); his long ones had grown to 500k-970k. Claude's memory of a
+# chat (its cache) also runs out after an hour idle, and then the whole chat is read in again
+# at full price. So: start fresh when a chat is long, or fairly long and idle; else carry on,
+# as a short, recent chat already knows what it was doing.
+LONG_CHAT = 200_000
+IDLE_CHAT = 120_000
+IDLE_SECONDS = 3600
+
+
+def chat_state(project: Project) -> dict | None:
+    """The Glade's state for the project's newest open chat (pid, session, working...)."""
+    best = None
+    for f in STATE.glob("*.json"):
+        try:
+            st = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        cwd = os.path.realpath(st.get("cwd") or "")
+        if st.get("pid") and cwd == os.path.realpath(project.path) and _alive(st["pid"]):
+            if best is None or st.get("started", 0) > best.get("started", 0):
+                best = st
+    return best
+
+
+def last_chat(usage: dict | None, project: Project, session: str | None = None) -> dict | None:
+    """How long a chat is now: that session's, else the project's most recent one."""
+    chats = (usage or {}).get("chats", {})
+    if session:
+        return chats.get(session)
+    mine = [c for c in chats.values() if c.get("project") == project.slug]
+    return max(mine, key=lambda c: c["at"]) if mine else None
+
+
+def fresh_reason(chat: dict | None, now=None) -> str | None:
+    """Why this chat should start fresh, or None to carry on with it."""
+    from datetime import datetime, timezone
+    if not chat or not chat.get("context"):
+        return None
+    size = chat["context"]
+    now = now or datetime.now(timezone.utc)
+    try:
+        idle = (now - datetime.fromisoformat(chat["at"].replace("Z", "+00:00"))).total_seconds()
+    except (KeyError, ValueError):
+        idle = 0
+    if size > LONG_CHAT:
+        return f"its chat has grown long ({short_tokens(size)} to re-read at every step)"
+    if size > IDLE_CHAT and idle > IDLE_SECONDS:
+        return (f"its chat is fairly long ({short_tokens(size)}) and has been idle for over an "
+                "hour, so it would all be read in again at full price")
+    return None
+
+
+def work_plan(project: Project, usage: dict | None) -> tuple[bool, str | None]:
+    """(fresh, why) for a Work request: whether its chat starts fresh first."""
+    st = chat_state(project)
+    if st:
+        if st.get("working"):
+            return False, None  # never wipe a chat in the middle of its work
+        return (bool(why := fresh_reason(last_chat(usage, project, st.get("session")))), why)
+    why = fresh_reason(last_chat(usage, project))
+    return bool(why), why
+
+
+def start_work(project: Project, items: list[str], usage: dict | None = None) -> str:
     """Work (uses his tokens; he has agreed by now): its Claude starts on these items, in the
-    open chat if there is one, else a new one. Says what happened."""
+    open chat if there is one, else a new one; started fresh first if the chat has grown
+    long (work_plan). Says what happened."""
     text = work_message(project, project.todo_file(), items)
+    fresh, _ = work_plan(project, usage)
     pid = open_chat_pid(project)
-    if pid and type_into_chat(pid, text):
-        return f"{project.title}'s Claude is on it"
-    open_new_chat(project, text)
-    return f"Opened a new Claude terminal for {project.title}"
+    if pid:
+        if fresh and type_into_chat(pid, "/clear"):
+            time.sleep(3)  # let it finish starting over before the message arrives
+            if type_into_chat(pid, text):
+                return f"{project.title}'s Claude started a fresh chat and is on it"
+        elif type_into_chat(pid, text):
+            return f"{project.title}'s Claude is on it"
+    open_new_chat(project, text, fresh=fresh)
+    return (f"Opened a fresh Claude terminal for {project.title}" if fresh
+            else f"Opened a new Claude terminal for {project.title}")
 
 
 # --- learning how many tokens Claude uses (his ask, 2026-11-01) ---------------------------
@@ -204,6 +281,7 @@ def collect_usage(transcripts: Path = TRANSCRIPTS, previous: dict | None = None,
     hours = {h: [0, 0.0] for h in range(24)}  # replies, tokens
     batches, stamps, seen, hits, hit_keys = [], [], set(), [], set()
     buckets = {}  # "2026-11-02T15" (UTC hour) -> {project: tokens}
+    chats = {}  # chat (session id) -> how much it re-reads each step now, and when it last ran
     for f in sorted(transcripts.glob("*/*.jsonl")):
         folder = f.parent.name
         project = folder.split("-projects-")[-1] if "-projects-" in folder else "computer"
@@ -250,6 +328,10 @@ def collect_usage(transcripts: Path = TRANSCRIPTS, previous: dict | None = None,
                 hours[local.hour][0] += 1
                 hours[local.hour][1] += tokens
                 stamps.append((when, tokens))
+                chats[f.stem] = {"project": project, "at": d["timestamp"],
+                                 "context": u.get("input_tokens", 0)
+                                 + u.get("cache_read_input_tokens", 0)
+                                 + u.get("cache_creation_input_tokens", 0)}
                 hour = when.astimezone(timezone.utc).strftime("%Y-%m-%dT%H")
                 per = buckets.setdefault(hour, {})
                 per[project] = per.get(project, 0) + tokens
@@ -280,7 +362,9 @@ def collect_usage(transcripts: Path = TRANSCRIPTS, previous: dict | None = None,
             "buckets": {h: {p: round(t) for p, t in v.items()}
                         for h, v in sorted(buckets.items()) if h >= keep},
             "hits": sorted(hits, key=lambda h: h["at"] or ""), "five_hour_fills": five,
-            "logins": _logins((previous or {}).get("logins", []), claude_json, now)}
+            "logins": _logins((previous or {}).get("logins", []), claude_json, now),
+            "chats": {k: v for k, v in chats.items()
+                      if v["at"] >= (now - timedelta(days=7)).isoformat()[:19]}}
 
 
 def _logins(known: list, claude_json: Path, now) -> list:

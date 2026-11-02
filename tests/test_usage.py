@@ -57,5 +57,25 @@ class UsageTest(unittest.TestCase):
                                "3 files changed since · Claude: Ranked mode")
 
 
+
+class FreshChatTest(unittest.TestCase):
+    NOW = datetime(2026, 11, 2, 20, 0, tzinfo=ZoneInfo("UTC"))
+
+    def chat(self, size, minutes_ago):
+        at = self.NOW.timestamp() - minutes_ago * 60
+        return {"context": size, "at": datetime.fromtimestamp(at, ZoneInfo("UTC")).isoformat()}
+
+    def test_short_recent_chat_carries_on(self):
+        self.assertIsNone(sender.fresh_reason(self.chat(90_000, 10), self.NOW))
+        self.assertIsNone(sender.fresh_reason(self.chat(150_000, 30), self.NOW))
+        self.assertIsNone(sender.fresh_reason(None, self.NOW))
+
+    def test_long_chat_starts_fresh(self):
+        self.assertIn("long", sender.fresh_reason(self.chat(400_000, 5), self.NOW))
+
+    def test_fairly_long_idle_chat_starts_fresh(self):
+        self.assertIn("idle", sender.fresh_reason(self.chat(150_000, 90), self.NOW))
+        self.assertIsNone(sender.fresh_reason(self.chat(80_000, 300), self.NOW))
+
 if __name__ == "__main__":
     unittest.main()

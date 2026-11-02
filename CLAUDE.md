@@ -38,6 +38,16 @@ Two buttons (his ask, 2026-10-30):
   terminal opens Claude on the project (his last chat, or a fresh one) with it as the first
   message.
 
+**Fresh chats** (his ask, 2026-11-02: "make sure that the cache is cleared for each project
+often but not all the time, i just dont want the referencing to take too many tokens"). Every
+step Claude re-reads the whole chat; a fresh one is ~60k, his long ones had reached 500k–970k.
+`collect_usage` keeps each chat's current size (`chats`: last reply's input + cache read +
+cache write). `sender.work_plan` / `fresh_reason`: Work starts the chat fresh first when it is
+over `LONG_CHAT` (200k), or over `IDLE_CHAT` (120k) and idle over an hour (Claude's cache has
+expired, so it would all be read in again at full price); never while the chat is working.
+In an open chat it types `/clear` first; else `open_chat.sh … fresh` starts a new chat
+instead of resuming the last. The token warning says when and why.
+
 **Organize** (his ask, 2026-10-30: "figure out which changes will take the most and least
 tokens"): a button left of Send. His picks: a free rough guess (no Claude), and sort + label.
 It sorts the waiting and the sent notes smallest first and tags each Small / Medium / Big

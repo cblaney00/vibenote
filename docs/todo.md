@@ -23,3 +23,4 @@ when one is finished, tick it and move it to **Done**.
 - [x] the asking permission to work screen should pop up in the center of vibe note, not in the corner of the screen outside of vibenote
 - [x] there should be a place to select all the work and send checkmarks
 - [x] make the VibeNote UI better, clearer places where you are able to click and less cluttery small text
+- [x] make sure that the cache is cleared for each project often but not all the time, i just dont want the referencing to take too many tokens

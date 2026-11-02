@@ -1133,8 +1133,12 @@ class VibeNote(tk.Tk):
         extra = (f", including {len(waiting)} note{'s' * (len(waiting) != 1)} not sent yet, "
                  "which get added to its list first" if waiting else "")
         cost = sum(self._tokens(n) for n in chosen)
-        if not TokenWarning(self, p.title, len(chosen), extra, cost,
-                            self._usage_after(cost)).agreed:
+        usage_text = self._usage_after(cost)
+        fresh, why = sender.work_plan(p, self.guess.usage)
+        if fresh:
+            usage_text = (f"VibeNote will start {p.title}'s Claude fresh first: {why}. Claude "
+                          "reads the project's notes again, so nothing is lost.\n\n" + usage_text)
+        if not TokenWarning(self, p.title, len(chosen), extra, cost, usage_text).agreed:
             self.say("Nothing sent to Claude.")
             return
         if waiting and not self._send(p, waiting):
@@ -1146,7 +1150,7 @@ class VibeNote(tk.Tk):
 
         def go():
             try:
-                self.sending = ("ok", sender.start_work(p, items))
+                self.sending = ("ok", sender.start_work(p, items, self.guess.usage))
             except OSError as err:
                 self.sending = ("fail", f"Couldn't reach Claude: {err.strerror or err}")
 

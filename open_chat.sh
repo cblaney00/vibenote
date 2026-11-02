@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# open_chat.sh <project dir> <title> <message file>
+# open_chat.sh <project dir> <title> <message file> [fresh]
 # Run by VibeNote inside a new kitty window: starts Claude on the project exactly the way
 # `vibe` does (same launcher, hooks and session rules, read out of the installed vibe so
 # they follow every rebuild), picking up the last chat if there is one, and hands it the
 # message as its first prompt.
 set -uo pipefail
-dir="$1" title="$2" msgfile="$3"
+dir="$1" title="$2" msgfile="$3" fresh="${4:-}"
 cd "$dir" || exit 1
 msg=$(cat "$msgfile")
 rm -f "$msgfile"
@@ -42,7 +42,9 @@ run() {
   esac
 }
 
-if [ "$sessions" -gt 0 ]; then
+# "fresh": the last chat has grown so long that re-reading it would cost more than starting
+# over, so start a new one (VibeNote decides; sender.fresh_reason)
+if [ "$sessions" -gt 0 ] && [ "$fresh" != "fresh" ]; then
   run -c "$msg"
 fi
 
