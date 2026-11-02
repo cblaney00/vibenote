@@ -50,7 +50,9 @@ working with similar stuff"; his pick: small terracotta headings): `store.group_
 notes sharing a theme (`THEMES`: Sound, Tutorial, Weapons...) or a telling word (a
 character's name, "planks") together, greedily, biggest share first; leftovers go under "On
 their own", last. Groups run smallest (summed size) first, notes small to big inside. The
-heading is kept on the note (`group`).
+heading is kept on the note (`group`). Pressing Organize also re-learns the usage at once
+(`_relearn(again=False)`), so the token guesses, sign and usage numbers are right for this
+time of day and week (his ask, 2026-11-02).
 
 **Token estimate and the "good time?" sign** (his asks, 2026-11-01: "a token estimator that
 learns how many tokens it uses based on time of day", and "a sign ... if it is a good time to
