@@ -64,14 +64,17 @@ Work batch (from its "Please work on these items" message to the next one / chat
 run long, so the median is used). `vibenote --collect-usage` (as root) saves that to
 `~/.local/share/vibenote/usage.json`; the Work message asks Claude to run it when a batch is
 done, and VibeNote re-reads it every 5 min on a side thread. `TokenGuess`: tokens = size
-score × learned tokens per point (median over that project's batches, else all) × the hour's factor (his own replies
-at that hour vs average, ≥40 replies, 0.75–1.35). Tags read "Big · ~29k"; the Work button
+score × learned tokens per point (median over that project's batches, else all) × the busy-hours
+factor: during Claude's busy hours (`is_busy`: weekday 5–11am Pacific = 8am–2pm his time) the
+same work uses up more of his limit, so estimates count more — learned from his 5-hour limit
+hits (median quiet fill ÷ median busy fill, by each window's middle, ≥2 of each, 1.0–2.0),
+`BUSY_GUESS` 1.25 until then. (It used to follow his own reply lengths by hour, which made busy
+hours *cheaper*; he caught that, 2026-11-02 — don't bring it back.) Tags read "Big · ~29k"; the Work button
 shows the total for the ticked items, and each section and group heading its own sum
 (his ask, 2026-11-01). The sign (sidebar bottom, `good_time`): *Not a great
 time* on weekday 5–11am Pacific (Anthropic made 5-hour limits run out faster then in March
-2026; later reports say not for Claude Code, so it says "may") or when the last 5 hours used
-over 70% of his busiest 5 hours ever (only if the summary is <20 min old); *OK* when his
-chats use more at this hour; else *Good*.
+2026; later reports say not for Claude Code, so it says "may") (it says how much more estimates count) or when the last 5 hours used
+over 70% of his busiest 5 hours ever (only if the summary is <20 min old); else *Good*.
 
 **Claude usage page** (his ask, 2026-11-02; his pick: click the sign → "Claude usage ›").
 Two accounts, each with a week that refreshes at a set time — his words: **Account 1 refreshes

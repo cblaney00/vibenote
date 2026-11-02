@@ -271,7 +271,8 @@ def collect_usage(transcripts: Path = TRANSCRIPTS, previous: dict | None = None,
     for hit in hits:
         if hit["type"] == "five_hour" and hit["at"]:
             at = datetime.fromisoformat(hit["at"].replace("Z", "+00:00"))
-            five.append(round(sum(t for w, t in stamps if at - timedelta(hours=5) < w <= at)))
+            five.append({"at": hit["at"], "tokens": round(
+                sum(t for w, t in stamps if at - timedelta(hours=5) < w <= at))})
     keep = (now - timedelta(days=21)).strftime("%Y-%m-%dT%H")
     return {"updated": now.isoformat(), "hours": hours,
             "batches": [b for b in batches if b["items"] and b["tokens"]],
@@ -330,11 +331,24 @@ def load_usage(path: Path = USAGE) -> dict | None:
     return load_saved_usage(path)
 
 
+def is_busy(when) -> bool:
+    """Claude's busiest hours: weekday mornings in California (8am-2pm for him). Anthropic
+    made the 5-hour limits run out faster then (March 2026); later reports say not for Claude
+    Code, so VibeNote learns how much it really is from his own limit hits (BUSY_GUESS until
+    it can)."""
+    from zoneinfo import ZoneInfo
+    pacific = when.astimezone(ZoneInfo("America/Los_Angeles"))
+    return pacific.weekday() < 5 and 5 <= pacific.hour < 11
+
+
 class TokenGuess:
     """Turns a note's size guess (store.size_score) into tokens, learned from what his
-    Work batches cost, and adjusted for the hour of the day from all his chats."""
+    Work batches cost, and counted higher in Claude's busy hours, when the same work uses up
+    more of his limit (his ask, 2026-11-02: the estimate was getting cheaper in the busy
+    hours, as it used to follow his own reply lengths by hour instead)."""
 
     PER_POINT = 6_000  # before any Work batch has been measured
+    BUSY_GUESS = 1.25  # busy hours count this much more until his limit hits show it
 
     def __init__(self, usage: dict | None):
         from store import size_score
@@ -353,22 +367,28 @@ class TokenGuess:
         self.per_point = median(everything) or self.PER_POINT
         self.per_project = {p: median(rs) for p, rs in rates.items() if p}
         self.learned = len(everything)
-        hours = {int(h): v for h, v in self.usage.get("hours", {}).items()}
-        replies = sum(v[0] for v in hours.values())
-        self.average = sum(v[1] for v in hours.values()) / replies if replies else 0
-        self.hours = hours
+        # How much more a busy hour uses of his limit: a 5-hour limit filled up in busy hours
+        # holds fewer tokens than one in quiet hours. Needs 2 of each to say.
+        from datetime import datetime, timedelta
+        busy, quiet = [], []
+        for f in self.usage.get("five_hour_fills", []):
+            if not isinstance(f, dict) or not f.get("tokens"):
+                continue
+            middle = (datetime.fromisoformat(f["at"].replace("Z", "+00:00"))
+                      - timedelta(hours=2.5))
+            (busy if is_busy(middle) else quiet).append(f["tokens"])
+        self.busy_learned = len(busy) >= 2 and len(quiet) >= 2
+        self.busy_factor = (min(max(median(quiet) / median(busy), 1.0), 2.0)
+                            if self.busy_learned else self.BUSY_GUESS)
 
-    def hour_factor(self, hour: int) -> float:
-        """How much more (or less) his chats use per reply at this hour than on average,
-        from at least 40 replies at that hour; kept between 0.75 and 1.35."""
-        count, tokens = self.hours.get(hour, (0, 0))
-        if count < 40 or not self.average:
-            return 1.0
-        return min(max(tokens / count / self.average, 0.75), 1.35)
+    def factor(self, when=None) -> float:
+        from datetime import datetime
+        return self.busy_factor if is_busy(when or datetime.now().astimezone()) else 1.0
 
-    def tokens(self, size: float, hour: int, project: str | None = None) -> int:
+    def tokens(self, size: float, when=None, project: str | None = None) -> int:
+        """when: the time it would run (now if not given)."""
         rate = self.per_project.get(project, self.per_point)
-        return round(max(size, 0.5) * rate * self.hour_factor(hour))
+        return round(max(size, 0.5) * rate * self.factor(when))
 
 
 def short_tokens(n: float) -> str:
@@ -384,15 +404,15 @@ def good_time(guess: TokenGuess, now=None) -> tuple[str, str]:
     """The sign (his ask: "if it is a good time to claude or not from a token perspective").
     Returns (level, why): level is "good", "ok" or "bad"."""
     from datetime import datetime, timezone
-    from zoneinfo import ZoneInfo
     now = now or datetime.now().astimezone()
     usage = guess.usage
     # Claude's busiest hours are weekday mornings in California; Anthropic has made the
     # 5-hour limits run out faster then (March 2026), though later reports say not for
     # Claude Code. Said as "may".
-    pacific = now.astimezone(ZoneInfo("America/Los_Angeles"))
-    if pacific.weekday() < 5 and 5 <= pacific.hour < 11:
-        return "bad", "Claude's busiest hours (weekday mornings in the US): limits may run out faster."
+    if is_busy(now):
+        more = round((guess.busy_factor - 1) * 100)
+        return "bad", (f"Claude's busiest hours (weekday mornings in the US): your limit may "
+                       f"run out faster, so estimates count {more}% more until 2pm.")
     try:
         fresh = (datetime.now(timezone.utc)
                  - datetime.fromisoformat(usage["updated"])).total_seconds() < 20 * 60
@@ -400,8 +420,6 @@ def good_time(guess: TokenGuess, now=None) -> tuple[str, str]:
         fresh = False
     if fresh and usage.get("max5h") and usage.get("last5h", 0) > 0.7 * usage["max5h"]:
         return "bad", "You've used a lot in the last 5 hours; your limit may be close."
-    if guess.hour_factor(now.hour) > 1.15:
-        return "ok", "Quiet for Claude, but your chats tend to use more tokens at this hour."
     return "good", "Quiet hours for Claude."
 
 
@@ -500,7 +518,8 @@ def usage_report(usage: dict | None, accounts: list[dict], now=None,
     logins = usage.get("logins", [])
     earlier = next((a["email"] for a in accounts if a.get("earlier")), "")
     current = logins[-1][1] if logins else earlier
-    fills = sorted(usage.get("five_hour_fills", []))
+    fills = sorted(f["tokens"] if isinstance(f, dict) else f
+                   for f in usage.get("five_hour_fills", []))
     five_hour = fills[len(fills) // 2] if fills else None
     report = {"current": current, "five_hour": five_hour, "accounts": []}
     for acc in accounts:

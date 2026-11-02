@@ -10,6 +10,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import sender  # noqa: E402
 from store import size_score  # noqa: E402
 
+BUSY = datetime(2026, 11, 2, 10, 0, tzinfo=ZoneInfo("America/New_York"))   # Monday 10am
+QUIET = datetime(2026, 11, 2, 22, 0, tzinfo=ZoneInfo("America/New_York"))  # Monday 10pm
+
 
 def reply(ts, out, msg_id):
     return {"type": "assistant", "timestamp": ts, "requestId": "r" + msg_id,
@@ -49,11 +52,25 @@ class TokenTest(unittest.TestCase):
         self.assertEqual(guess.learned, 1)
         # learned for that project; another project uses the overall rate
         self.assertEqual(guess.per_project, {"r62d": 3000 / points})
-        self.assertEqual(guess.tokens(2, 14, "r62d"), round(2 * 3000 / points))
+        self.assertEqual(guess.tokens(2, QUIET, "r62d"), round(2 * 3000 / points))
 
     def test_guess_without_data(self):
         guess = sender.TokenGuess(None)
-        self.assertEqual(guess.tokens(2, 14), 2 * sender.TokenGuess.PER_POINT)
+        self.assertEqual(guess.tokens(2, QUIET), 2 * sender.TokenGuess.PER_POINT)
+
+    def test_busy_hours_cost_more(self):
+        guess = sender.TokenGuess(None)
+        self.assertEqual(guess.tokens(2, BUSY), round(2 * sender.TokenGuess.PER_POINT
+                                                      * sender.TokenGuess.BUSY_GUESS))
+        # learned: 5-hour limits hit in busy hours held half as much
+        fills = [{"at": "2026-11-02T18:00:00Z", "tokens": 100},   # Mon, window 8am-1pm NY
+                 {"at": "2026-11-03T18:00:00Z", "tokens": 100},
+                 {"at": "2026-11-01T03:00:00Z", "tokens": 200},   # Sat night
+                 {"at": "2026-11-04T04:00:00Z", "tokens": 200}]   # Tue night
+        guess = sender.TokenGuess({"five_hour_fills": fills})
+        self.assertTrue(guess.busy_learned)
+        self.assertEqual(guess.busy_factor, 2.0)
+        self.assertEqual(guess.factor(QUIET), 1.0)
 
     def test_short_tokens(self):
         self.assertEqual(sender.short_tokens(59_400), "~59k")
