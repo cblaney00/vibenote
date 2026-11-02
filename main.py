@@ -922,9 +922,10 @@ class VibeNote(tk.Tk):
         project = self.current.slug if self.current else None
         return self.guess.tokens(size, datetime.now().hour, project)
 
-    def _relearn(self):
-        """Every 5 minutes: learn again from Claude's chats (on a side thread: reading them
-        takes a second or two), then update the sign and the guesses."""
+    def _relearn(self, again=True, then=None):
+        """Every 5 minutes (and when he presses Organize): learn again from Claude's chats
+        (on a side thread: reading them takes a second or two), then update the sign and the
+        guesses. again: keep doing it every 5 minutes. then: run afterwards."""
         found = []
         reader = threading.Thread(target=lambda: found.append(sender.load_usage()),
                                   daemon=True)
@@ -939,7 +940,10 @@ class VibeNote(tk.Tk):
                 if self.sending is None:
                     self.refresh(keep_scroll=True)
             self._show_sign()
-            self.after(5 * 60_000, self._relearn)
+            if then:
+                then()
+            if again:
+                self.after(5 * 60_000, self._relearn)
 
         self.after(200, apply)
 
@@ -1008,8 +1012,12 @@ class VibeNote(tk.Tk):
             self.say("Nothing to organize yet.")
             return
         self.store.organize(p.slug)
-        self.say("✓ Organized (no tokens used)", ACCENT)
+        self.say("Organized · updating the estimates…")
         self.refresh()
+        # His ask (2026-11-02): Organize also brings the token and usage guesses up to date
+        # for this time of day and week: re-read what Claude has used, then redraw
+        self._relearn(again=False, then=lambda: self.say("✓ Organized · estimates up to date",
+                                                         ACCENT))
 
     def delete_note(self, note):
         self.store.delete(self.current.slug, note["id"])

@@ -5,6 +5,7 @@ when one is finished, tick it and move it to **Done**.
 
 ## To do
 
+
 ## Done
 
 - [x] make vibenote start up quicker, it seems to take longer than the app should need, if its loading in then it should have a loading graphic
@@ -18,3 +19,4 @@ when one is finished, tick it and move it to **Done**.
 - [x] make a function that summarizes everything i said into a language that claude can easily understand and simplify to save on tokens
 - [x] check for simple spelling errors in the UI, i just found "practising"
 - [x] disregard the note about the spelling errors
+- [x] make sure vibenote refreshes its usage limit estimations based on the time of day/week when the organize button is pressed
