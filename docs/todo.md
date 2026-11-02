@@ -22,3 +22,4 @@ when one is finished, tick it and move it to **Done**.
 - [x] make sure vibenote refreshes its usage limit estimations based on the time of day/week when the organize button is pressed
 - [x] the asking permission to work screen should pop up in the center of vibe note, not in the corner of the screen outside of vibenote
 - [x] there should be a place to select all the work and send checkmarks
+- [x] make the VibeNote UI better, clearer places where you are able to click and less cluttery small text

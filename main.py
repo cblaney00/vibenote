@@ -5,6 +5,7 @@ Writing and sorting notes never needs Claude; only the Send button talks to it.
 
 import json
 import os
+from pathlib import Path
 import sys
 import subprocess
 from datetime import date, datetime
@@ -58,7 +59,8 @@ class VibeNote(tk.Tk):
         self.sending = None  # the message from a send running in the background
 
         self.f_brand = tkfont.Font(family=SERIF, size=20, weight="bold", slant="italic")
-        self.f_head = tkfont.Font(family=SERIF, size=10, slant="italic")
+        # Small text a bit bigger and upright (his pick, 2026-11-02: "less cluttery small text")
+        self.f_head = tkfont.Font(family=SERIF, size=11)
         self.f_side = tkfont.Font(family=SERIF, size=13)
         self.f_side_picked = tkfont.Font(family=SERIF, size=13, weight="bold")
         self.f_title = tkfont.Font(family=SERIF, size=24, weight="bold")
@@ -70,7 +72,7 @@ class VibeNote(tk.Tk):
         self.tick_w = max(self.f_head.measure("Work"), self.f_box.measure("☑")) + 20
         self.tick_h = self.f_box.metrics("linespace") + 4
         self.head_h = self.f_head.metrics("linespace") + 4
-        self.f_small = tkfont.Font(family=SERIF, size=11, slant="italic")
+        self.f_small = tkfont.Font(family=SERIF, size=12)
         self.f_button = tkfont.Font(family=SERIF, size=13, weight="bold")
 
         # The glowing notepad shows while the page is built (his pick, 2026-11-01)
@@ -150,10 +152,10 @@ class VibeNote(tk.Tk):
         self.sign_why = tk.Label(sign, font=self.f_small, bg=SIDEBAR, fg=FADED_INK, anchor="w",
                                  justify="left", wraplength=184)
         self.sign_why.pack(fill="x")
-        self.sign_more = tk.Label(sign, text="Claude usage ›", font=self.f_small, bg=SIDEBAR,
-                                  fg=ACCENT, anchor="w", cursor="hand2")
-        self.sign_more.pack(fill="x", pady=(4, 0))
-        for w in (sign, self.sign_title, self.sign_why, self.sign_more):
+        self.sign_more = SmallButton(sign, self.f_small, lambda: self.show("usage"), ACCENT,
+                                     "Claude usage ›")
+        self.sign_more.pack(anchor="w", pady=(8, 0))
+        for w in (sign, self.sign_title, self.sign_why):
             w.configure(cursor="hand2")
             w.bind("<Button-1>", lambda e: self.show("usage"))
 
@@ -178,10 +180,8 @@ class VibeNote(tk.Tk):
                                     anchor="w")
         self.count_label.pack(side="left")
         # "Summary" on a project page, "← Back" on the others
-        self.page_link = tk.Label(count_row, font=self.f_small, bg=PAPER, fg=ACCENT,
-                                  cursor="hand2")
-        self.page_link.pack(side="left", padx=(12, 0))
-        self.page_link.bind("<Button-1>", lambda e: self._page_link())
+        self.page_link = SmallButton(count_row, self.f_small, self._page_link, ACCENT)
+        self.page_link.pack(side="left", padx=(14, 0))
         self.view = None  # None: the project's notes; else "usage", "find" or "summary"
 
         # Box for finding notes in every project (Ctrl+F, his ask), shown instead of the
@@ -341,13 +341,13 @@ class VibeNote(tk.Tk):
             w.destroy()
         back = f"← Back to {self.current.title}" if self.current else "← Back"
         if self.view:
-            self.page_link.configure(text=back)
+            self.page_link.set(back)
             {"usage": self._draw_usage, "find": self._draw_find,
              "summary": self._draw_summary}[self.view]()
             if not keep_scroll:
                 self.canvas.yview_moveto(0)
             return
-        self.page_link.configure(text="Summary ›" if self.current else "")
+        self.page_link.set("Summary ›" if self.current else "")
         p = self.current
         if p is None:
             self.title_label.configure(text="No projects yet")
@@ -476,12 +476,14 @@ class VibeNote(tk.Tk):
                                                             else ""))
             left = a["end"] - datetime.now().astimezone()
             d, h = left.days, left.seconds // 3600
-            refresh = self._line(
-                f"Week refreshes {sender.refresh_text(a)}"
-                + (" (a guess, click to change)" if a.get("guess") else " (click to change)")
-                + f" · in {d} d {h} h", fg=FADED_INK)
-            refresh.configure(cursor="hand2")
-            refresh.bind("<Button-1>", lambda e, acc=a, lab=refresh: self._edit_refresh(acc, lab))
+            refresh = tk.Frame(self.notes_frame, bg=PAPER)
+            refresh.pack(fill="x", pady=(0, 2))
+            tk.Label(refresh, text=f"Week refreshes {sender.refresh_text(a)}"
+                     + (" (a guess)" if a.get("guess") else "") + f" · in {d} d {h} h",
+                     font=self.f_todo, bg=PAPER, fg=FADED_INK).pack(side="left")
+            SmallButton(refresh, self.f_small,
+                        lambda acc=a, lab=refresh: self._edit_refresh(acc, lab), ACCENT,
+                        "Change").pack(side="left", padx=(10, 0))
             self._line(f"Used this week: {t(a['used'])} · your pace: {t(a['pace'])} a day")
             if a["weekly_learned"]:
                 limit_text = f"its weekly limit, {t(a['limit'])}"
@@ -817,14 +819,20 @@ class VibeNote(tk.Tk):
             when = f"Claude on it · {nice_date(note['worked'])}"
         else:
             when = nice_date(note["sent"]) if note.get("sent") else ""
+        date = None
         if when:
-            tk.Label(line, text=when, font=self.f_small, bg=PAPER,
-                     fg=WORK_GREEN if note.get("worked") and not done else FADED_INK
-                     ).pack(side="right", padx=(10, 4), anchor="n")
+            # shown only while the mouse is over the item (his pick, 2026-11-02: less clutter)
+            colour = WORK_GREEN if note.get("worked") and not done else FADED_INK
+            date = tk.Label(line, text=when, font=self.f_small, bg=PAPER, fg=PAPER)
+            date.pack(side="right", padx=(10, 4), anchor="n")
         text = tk.Label(line, text=note["text"], font=self.f_todo, bg=PAPER,
                         fg=FADED_INK if done else INK, anchor="w", justify="left")
         text.pack(side="left", fill="x", expand=True)
         self._wrap(text)
+        if date is not None:
+            for w in (line, text, date):
+                w.bind("<Enter>", lambda e: date.configure(fg=colour), add="+")
+                w.bind("<Leave>", lambda e: date.configure(fg=PAPER), add="+")
 
     def _draw_done(self, done):
         """The Done list as one block of text, not a row of widgets per item: it can run to
@@ -1009,16 +1017,13 @@ class VibeNote(tk.Tk):
         tk.Label(row, text="Tick all:", font=self.f_small, bg=PAPER, fg=FADED_INK).pack(
             side="left")
         everything = notes + sent
-        links = [("for Send", ACCENT, lambda: self.tick_every(notes, "send", True)),
-                 ("for Work", WORK_GREEN, lambda: self.tick_every(everything, "work", True)),
-                 ("untick all", FADED_INK, lambda: self.untick_every(everything))]
+        links = [("Send", ACCENT, lambda: self.tick_every(notes, "send", True)),
+                 ("Work", WORK_GREEN, lambda: self.tick_every(everything, "work", True)),
+                 ("Untick all", FADED_INK, lambda: self.untick_every(everything))]
         if not notes:
             links.pop(0)
         for text, colour, action in links:
-            link = tk.Label(row, text=text, font=self.f_small, bg=PAPER, fg=colour,
-                            cursor="hand2")
-            link.pack(side="left", padx=(10, 0))
-            link.bind("<Button-1>", lambda e, a=action: a())
+            SmallButton(row, self.f_small, action, colour, text).pack(side="left", padx=(10, 0))
 
     def tick_every(self, notes, which, on):
         self.store.tick(self.current.slug, [n["id"] for n in notes], which, on)
@@ -1213,6 +1218,36 @@ class Loading(tk.Canvas):
         self.after(max(wait, 0), self.destroy)
 
 
+class SmallButton(tk.Label):
+    """A small outlined button for the little things to click (his pick, 2026-11-02: "clearer
+    places where you are able to click"); it lights up under the mouse. An empty text hides
+    it."""
+
+    def __init__(self, parent, font, command, colour, text=""):
+        self.colour = colour
+        super().__init__(parent, font=font, fg=colour, bg=FIELD, padx=10, pady=2,
+                         highlightthickness=1, highlightbackground=RULE, highlightcolor=RULE,
+                         cursor="hand2")
+        self.bind("<Button-1>", lambda e: command())
+        self.bind("<Enter>", lambda e: self.configure(bg=SIDEBAR_PICKED,
+                                                      highlightbackground=colour))
+        self.bind("<Leave>", lambda e: self.configure(bg=FIELD, highlightbackground=RULE))
+        self._packed = None
+        self.set(text)
+
+    def pack(self, **kw):
+        self._packed = kw
+        if self.cget("text"):
+            super().pack(**kw)
+
+    def set(self, text):
+        self.configure(text=text)
+        if not text:
+            self.pack_forget()
+        elif self._packed is not None and not self.winfo_ismapped():
+            super().pack(**self._packed)
+
+
 class Button(tk.Label):
     """A flat paper-style button. main: filled brick red; otherwise outlined."""
 
@@ -1286,6 +1321,29 @@ class SnapshotDetails(tk.Toplevel):
         centre_on(app, self)
 
 
+def close_older_copies():
+    """One VibeNote at a time (2026-11-02): an older copy left open after an update kept the
+    old code, so its token warning still came up in the screen's corner. Opening VibeNote
+    closes any other copy he has running; notes are saved as he goes, so nothing is lost."""
+    import signal
+    me = os.getpid()
+    for proc in Path("/proc").iterdir():
+        if not proc.name.isdigit() or int(proc.name) == me:
+            continue
+        try:
+            if proc.stat().st_uid != os.getuid():
+                continue
+            args = (proc / "cmdline").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        if (any(a.endswith(b"vibenote/main.py") for a in args)
+                and b"--collect-usage" not in args):
+            try:
+                os.kill(int(proc.name), signal.SIGTERM)
+            except OSError:
+                pass
+
+
 def centre_on(app, win):
     """Put a pop-up in the middle of VibeNote (his ask, 2026-11-02: the token warning came up
     in the corner of the screen, outside VibeNote). His desktop (Hyprland) decides where new
@@ -1324,6 +1382,17 @@ def centre_on(app, win):
                             f"exact {want[0]} {want[1]},{where}"], capture_output=True, timeout=2)
         app.after(50)
         app.update()
+    # Didn't stay put: note what the desktop said, so it can be fixed
+    try:
+        log = Path.home() / ".local/state/vibenote/centre.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with log.open("a") as f:
+            f.write(f"{datetime.now().isoformat()} {title!r} pid {os.getpid()}: "
+                    + json.dumps([{k: c.get(k) for k in ("title", "at", "size", "floating",
+                                                         "workspace")} for c in clients])
+                    + "\n")
+    except (OSError, NameError):
+        pass
 
 
 class TokenWarning(tk.Toplevel):
@@ -1379,4 +1448,5 @@ if __name__ == "__main__":
         sender.save_usage(sender.collect_usage(previous=sender.load_saved_usage()))
         print(f"VibeNote: token use saved to {sender.USAGE}")
     else:
+        close_older_copies()
         VibeNote().mainloop()

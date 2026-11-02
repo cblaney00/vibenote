@@ -411,16 +411,15 @@ def good_time(guess: TokenGuess, now=None) -> tuple[str, str]:
     # Claude Code. Said as "may".
     if is_busy(now):
         more = round((guess.busy_factor - 1) * 100)
-        return "bad", (f"Claude's busiest hours (weekday mornings in the US): your limit may "
-                       f"run out faster, so estimates count {more}% more until 2pm.")
+        return "bad", f"Busy hours: estimates +{more}% until 2pm."
     try:
         fresh = (datetime.now(timezone.utc)
                  - datetime.fromisoformat(usage["updated"])).total_seconds() < 20 * 60
     except (KeyError, ValueError, TypeError):
         fresh = False
     if fresh and usage.get("max5h") and usage.get("last5h", 0) > 0.7 * usage["max5h"]:
-        return "bad", "You've used a lot in the last 5 hours; your limit may be close."
-    return "good", "Quiet hours for Claude."
+        return "bad", "Lots used in the last 5 hours."
+    return "good", "Quiet hours."
 
 
 # --- his two Claude accounts (his ask, 2026-11-02) -------------------------------------

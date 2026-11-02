@@ -126,6 +126,12 @@ Look (his calls, in order):
   white), muted terracotta for headings / Send / the main button, a dim margin line, Georgia.
   Keep everything low-glare; no bright or white areas. Colours are the constants at the top
   of `main.py`.
+- 2026-11-02: "clearer places where you are able to click and less cluttery small text". His
+  picks: the little clickable things are **small outlined buttons** (`SmallButton`: Summary /
+  Back, Claude usage, Tick all, Change) that light up under the mouse; small text is 12 pt
+  and upright, not italic (section headings 11 pt); dates on sent items show only while the
+  mouse is over them; the sidebar sign is one short line ("Busy hours: estimates +25% until
+  2pm."). He kept the token numbers on each note and on the group headings.
 Ask him before changing the look.
 
 **Ticks** (his ask): each waiting note has a **Send** tick (terracotta, new notes start ticked)
@@ -139,7 +145,10 @@ everything open for Work, or unticks it all (`_tick_all_row`).
 **Pop-ups open in the middle of VibeNote** (his ask, 2026-11-02: the token warning came up in
 the screen's corner): `centre_on` asks Hyprland (`hyprctl clients`/`movewindowpixel` by the
 pop-up's address) to move it there, checking again until it stays put, since Hyprland places
-new windows itself just after they appear.
+new windows itself just after they appear. If it still doesn't stay, `centre_on` writes what the desktop
+said to `~/.local/state/vibenote/centre.log`. **One VibeNote at a time** (`close_older_copies`):
+opening it closes any other copy he has running — an older copy left open (minimized) after an
+update kept the old code and put the warning in the corner again.
 
 ## How it is built
 
