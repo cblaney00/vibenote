@@ -20,3 +20,5 @@ when one is finished, tick it and move it to **Done**.
 - [x] check for simple spelling errors in the UI, i just found "practising"
 - [x] disregard the note about the spelling errors
 - [x] make sure vibenote refreshes its usage limit estimations based on the time of day/week when the organize button is pressed
+- [x] the asking permission to work screen should pop up in the center of vibe note, not in the corner of the screen outside of vibenote
+- [x] there should be a place to select all the work and send checkmarks

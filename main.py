@@ -368,6 +368,8 @@ class VibeNote(tk.Tk):
         self.count_label.configure(
             text=f"{len(notes)} waiting · {len(sent)} sent · {len(done)} done")
 
+        if notes or sent:
+            self._tick_all_row(notes, sent)
         if not notes:
             tk.Label(self.notes_frame, text="No notes waiting. Write one above.",
                      font=self.f_small, bg=PAPER, fg=FADED_INK, anchor="w").pack(fill="x", pady=6)
@@ -999,6 +1001,35 @@ class VibeNote(tk.Tk):
         box.configure(text="☑" if on else "☐", fg=colour if on else FADED_INK)
         self._update_buttons()
 
+    def _tick_all_row(self, notes, sent):
+        """One place to tick everything (his ask, 2026-11-02): all waiting notes for Send,
+        everything open (waiting and on the list) for Work, or untick it all."""
+        row = tk.Frame(self.notes_frame, bg=PAPER)
+        row.pack(fill="x", pady=(0, 6))
+        tk.Label(row, text="Tick all:", font=self.f_small, bg=PAPER, fg=FADED_INK).pack(
+            side="left")
+        everything = notes + sent
+        links = [("for Send", ACCENT, lambda: self.tick_every(notes, "send", True)),
+                 ("for Work", WORK_GREEN, lambda: self.tick_every(everything, "work", True)),
+                 ("untick all", FADED_INK, lambda: self.untick_every(everything))]
+        if not notes:
+            links.pop(0)
+        for text, colour, action in links:
+            link = tk.Label(row, text=text, font=self.f_small, bg=PAPER, fg=colour,
+                            cursor="hand2")
+            link.pack(side="left", padx=(10, 0))
+            link.bind("<Button-1>", lambda e, a=action: a())
+
+    def tick_every(self, notes, which, on):
+        self.store.tick(self.current.slug, [n["id"] for n in notes], which, on)
+        self.refresh(keep_scroll=True)
+
+    def untick_every(self, notes):
+        ids = [n["id"] for n in notes]
+        self.store.tick(self.current.slug, ids, "send", False)
+        self.store.tick(self.current.slug, ids, "work", False)
+        self.refresh(keep_scroll=True)
+
     def tick_all(self, notes, which):
         on = not all(n[which] for n in notes)
         self.store.tick(self.current.slug, [n["id"] for n in notes], which, on)
@@ -1252,6 +1283,47 @@ class SnapshotDetails(tk.Toplevel):
         close.set("Close")
         close.pack(anchor="e", pady=(14, 0))
         self.bind("<Escape>", lambda e: self.destroy())
+        centre_on(app, self)
+
+
+def centre_on(app, win):
+    """Put a pop-up in the middle of VibeNote (his ask, 2026-11-02: the token warning came up
+    in the corner of the screen, outside VibeNote). His desktop (Hyprland) decides where new
+    windows go itself, so ask it to float the pop-up and move it there; elsewhere the
+    window's own position is enough."""
+    app.update_idletasks()
+    x = app.winfo_rootx() + (app.winfo_width() - win.winfo_reqwidth()) // 2
+    y = app.winfo_rooty() + (app.winfo_height() - win.winfo_reqheight()) // 3
+    win.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+    win.wait_visibility()
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return
+    title = win.title()
+    # The desktop may take a moment to list the new window, and places it itself once it
+    # has: so move it, look again, and move it again until it stays put (up to ~1.5 s)
+    for _ in range(30):
+        try:
+            out = subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True,
+                                 timeout=2).stdout
+            clients = [c for c in json.loads(out) if c.get("pid") == os.getpid()]
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return
+        main = next((c for c in clients if c.get("title") == "VibeNote"), None)
+        pop = next((c for c in clients if c.get("title") == title), None)
+        if main and pop:
+            (mx, my), (mw, mh) = main["at"], main["size"]
+            pw, ph = pop["size"]
+            want = [mx + (mw - pw) // 2, my + (mh - ph) // 3]
+            if pop["at"] == want:
+                return
+            where = f"address:{pop['address']}"
+            if not pop.get("floating"):
+                subprocess.run(["hyprctl", "dispatch", "setfloating", where],
+                               capture_output=True, timeout=2)
+            subprocess.run(["hyprctl", "dispatch", "movewindowpixel",
+                            f"exact {want[0]} {want[1]},{where}"], capture_output=True, timeout=2)
+        app.after(50)
+        app.update()
 
 
 class TokenWarning(tk.Toplevel):
@@ -1291,11 +1363,7 @@ class TokenWarning(tk.Toplevel):
         cancel.pack(side="right", padx=(0, 10))
 
         self.bind("<Escape>", lambda e: self.destroy())
-        self.update_idletasks()
-        x = app.winfo_rootx() + (app.winfo_width() - self.winfo_width()) // 2
-        y = app.winfo_rooty() + (app.winfo_height() - self.winfo_height()) // 3
-        self.geometry(f"+{max(x, 0)}+{max(y, 0)}")
-        self.wait_visibility()
+        centre_on(app, self)
         self.grab_set()
         cancel.focus_set()
         app.wait_window(self)

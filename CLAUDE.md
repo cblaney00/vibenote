@@ -133,6 +133,13 @@ and a **Work** tick (green, starts unticked); items already on the list have onl
 Send sends only Send-ticked notes; Work gives Claude only Work-ticked items (a Work-ticked
 note not yet sent is added to the list first), then the Work tick comes off and the item
 shows "Claude on it · date". Clicking a column title ticks or unticks the whole column.
+A **"Tick all:"** row above the lists (his ask, 2026-11-02) ticks every waiting note for Send,
+everything open for Work, or unticks it all (`_tick_all_row`).
+
+**Pop-ups open in the middle of VibeNote** (his ask, 2026-11-02: the token warning came up in
+the screen's corner): `centre_on` asks Hyprland (`hyprctl clients`/`movewindowpixel` by the
+pop-up's address) to move it there, checking again until it stays put, since Hyprland places
+new windows itself just after they appear.
 
 ## How it is built
 
