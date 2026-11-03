@@ -8,6 +8,7 @@ when one is finished, tick it and move it to **Done**.
 
 ## Done
 
+- [x] testing the fix
 - [x] for some reason it recognizses the pop up box that is giving us problems as Your only move is hustle
 - [x] make vibenote start up quicker, it seems to take longer than the app should need, if its loading in then it should have a loading graphic
 - [x] when organize is pressed, it should not only sort by effort needed but things should also be grouped together if claude is going to be working with similar stuff
