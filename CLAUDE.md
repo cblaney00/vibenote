@@ -102,6 +102,15 @@ budget, on/off track, and which to use now (the one whose week ends soonest, if 
 A 5-hour window = median of what was written in the 5 h before each 5-hour hit. The Work
 warning shows the request's guess and what it does to the logged-in account (`_usage_after`).
 
+**Later box** (his ask, 2026-11-02: "pin it in a box for getting it done later so it doesnt
+clutter up the rest of the jobs that can be staged and done immidiately"). His picks: above
+Done, folded to one line ("▸ Later (3) · ~40k tokens", click to open; `later_open`, starts
+folded each run); a "Later" word under the mouse (by Move, and on sent items) or right-click
+puts a note in; "Now" brings it back as a waiting note ticked for Send; Later notes stay **off
+the to-do list** (a sent one is taken off it: `Project.remove_from_todo`) and Send, Work, Tick
+all and Summary's "open ones for Claude" skip them. Status `later` in the store; `sync` counts
+an open item matching a Later note as known (a shared game's other branches may still list it).
+
 **Find** (Ctrl+F, his ask): a box over the page; every note in every project (and its
 snapshot) with all the words, lit up; click one to open its project; Esc goes back.
 

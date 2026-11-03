@@ -188,6 +188,7 @@ class VibeNote(tk.Tk):
         self.page_link = SmallButton(count_row, self.f_small, self._page_link, ACCENT)
         self.page_link.pack(side="left", padx=(14, 0))
         self.view = None  # None: the project's notes; else "usage", "find" or "summary"
+        self.later_open = False  # the Later box starts folded (his pick, 2026-11-02)
 
         # Box for finding notes in every project (Ctrl+F, his ask), shown instead of the
         # note box while finding
@@ -365,13 +366,15 @@ class VibeNote(tk.Tk):
         notes = self.store.get(p.slug)
         sent = self.store.get(p.slug, "sent")
         done = self.store.get(p.slug, "done")
+        later = self.store.get(p.slug, "later")
         # Newest first: finished since VibeNote started watching, then the imported ones
         # in the order the to-do file had them (its newest are at the top)
         done = sorted((n for n in done if n.get("done")), key=lambda n: n["done"],
                       reverse=True) + [n for n in done if not n.get("done")]
         self.title_label.configure(text=p.title)
         self.count_label.configure(
-            text=f"{len(notes)} waiting · {len(sent)} sent · {len(done)} done")
+            text=f"{len(notes)} waiting · {len(sent)} sent · {len(done)} done"
+                 + (f" · {len(later)} later" if later else ""))
 
         if notes or sent:
             self._tick_all_row(notes, sent)
@@ -393,6 +396,8 @@ class VibeNote(tk.Tk):
             for note in sent:
                 group = self._group_heading(note, group, totals)
                 self._draw_history(note)
+        if later:
+            self._draw_later(later)
         if done:
             self._heading(f"Done ({len(done)})")
             self._draw_done(done)
@@ -563,7 +568,7 @@ class VibeNote(tk.Tk):
         box.tag_configure("where", foreground=ACCENT, font=self.f_small)
         box.tag_configure("hit", background=SIDEBAR_PICKED, foreground=INK)
         box.tag_configure("when", foreground=FADED_INK, font=self.f_small)
-        mark = {"waiting": "waiting", "sent": "on its list", "done": "done"}
+        mark = {"waiting": "waiting", "sent": "on its list", "done": "done", "later": "in Later"}
         for i, (p, n) in enumerate(hits[:200]):
             tag = f"go{i}"
             box.insert("end", f"{p.title} · {mark[n['status']]}\n", ("where", tag))
@@ -605,7 +610,7 @@ class VibeNote(tk.Tk):
         p = self.current
         self.title_label.configure(text=f"{p.title}: summary")
         notes = self.store.all(p.slug)
-        open_notes = [n for n in notes if n["status"] != "done"]
+        open_notes = [n for n in notes if n["status"] in ("waiting", "sent")]  # not Later
         mine = " ".join(n["text"] for n in open_notes)
         short = "\n".join(f"- {condense(n['text'])}" for n in open_notes)
         self.count_label.configure(
@@ -615,7 +620,7 @@ class VibeNote(tk.Tk):
             copy = Button(self.notes_frame, self.f_button, lambda: self._copy(short), main=False)
             copy.set("Copy the open ones for Claude")
             copy.pack(anchor="w", pady=(0, 6))
-        status = {"waiting": "•", "sent": "→", "done": "✓"}
+        status = {"waiting": "•", "sent": "→", "done": "✓", "later": "◦"}
         groups = group_notes([dict(n) for n in notes])
         groups.sort(key=lambda g: (g[0] == "On their own", -len(g[1])))
         box = tk.Text(self.notes_frame, bg=PAPER, fg=INK, font=self.f_todo, wrap="word",
@@ -657,6 +662,9 @@ class VibeNote(tk.Tk):
         remove.pack(side="right", padx=(8, 4), anchor="n")
         move = tk.Label(line, text="Move", font=self.f_small, bg=PAPER, fg=PAPER, cursor="hand2")
         move.pack(side="right", padx=(8, 0), anchor="n", pady=(3, 0))
+        later = tk.Label(line, text="Later", font=self.f_small, bg=PAPER, fg=PAPER,
+                         cursor="hand2")
+        later.pack(side="right", padx=(8, 0), anchor="n", pady=(3, 0))
         self._size_tag(line, note, pady=(3, 0))
         # The text goes in last, so it gets the room left over and never squeezes the ticks
         text.pack(side="left", fill="x", expand=True)
@@ -668,6 +676,7 @@ class VibeNote(tk.Tk):
         text.bind("<Button-1>", lambda e: self.edit_note(note, line, text))
         remove.bind("<Button-1>", lambda e: self.delete_note(note))
         move.bind("<Button-1>", lambda e: self.move_menu(note, e))
+        later.bind("<Button-1>", lambda e: self.later_note(note))
         for w in (row, line, dot, text):
             w.bind("<Button-3>", lambda e: self.move_menu(note, e))
 
@@ -688,6 +697,7 @@ class VibeNote(tk.Tk):
             hiding.clear()
             remove.configure(fg=FADED_INK)
             move.configure(fg=FADED_INK)
+            later.configure(fg=FADED_INK)
             if snap_line is not None and not snap_line.winfo_ismapped():
                 snap_line.configure(wraplength=max(row.winfo_width() - 40, 100),
                                     justify="left")
@@ -699,6 +709,7 @@ class VibeNote(tk.Tk):
                 return
             remove.configure(fg=PAPER)
             move.configure(fg=PAPER)
+            later.configure(fg=PAPER)
             if snap_line is not None:
                 snap_line.pack_forget()
 
@@ -707,11 +718,12 @@ class VibeNote(tk.Tk):
             # another, and the line should not flicker
             hiding.append(self.after(120, hide_now))
 
-        for w in (row, line, dot, text, remove, move) + ((snap_line,) if snap_line else ()):
+        for w in (row, line, dot, text, remove, move, later) + ((snap_line,) if snap_line
+                                                              else ()):
             w.bind("<Enter>", show, add="+")
             w.bind("<Leave>", hide, add="+")
-        remove.bind("<Enter>", lambda e: remove.configure(fg=ACCENT), add="+")
-        move.bind("<Enter>", lambda e: move.configure(fg=ACCENT), add="+")
+        for w in (remove, move, later):
+            w.bind("<Enter>", lambda e, w=w: w.configure(fg=ACCENT), add="+")
 
     def _heading(self, text, notes=None, send=False, top=False):
         """A section title; with notes, also the "Send"/"Work" column titles over the ticks.
@@ -830,14 +842,73 @@ class VibeNote(tk.Tk):
             colour = WORK_GREEN if note.get("worked") and not done else FADED_INK
             date = tk.Label(line, text=when, font=self.f_small, bg=PAPER, fg=PAPER)
             date.pack(side="right", padx=(10, 4), anchor="n")
+        later = None
+        if not done:
+            later = tk.Label(line, text="Later", font=self.f_small, bg=PAPER, fg=PAPER,
+                             cursor="hand2")
+            later.pack(side="right", padx=(8, 0), anchor="n")
+            later.bind("<Button-1>", lambda e: self.later_note(note))
         text = tk.Label(line, text=note["text"], font=self.f_todo, bg=PAPER,
                         fg=FADED_INK if done else INK, anchor="w", justify="left")
         text.pack(side="left", fill="x", expand=True)
         self._wrap(text)
+        if later is not None:
+            for w in (line, text):
+                w.bind("<Button-3>", lambda e: self.move_menu(note, e))
+            for w in (line, text, later):
+                w.bind("<Enter>", lambda e: later.configure(fg=FADED_INK), add="+")
+                w.bind("<Leave>", lambda e: later.configure(fg=PAPER), add="+")
+            later.bind("<Enter>", lambda e: later.configure(fg=ACCENT), add="+")
         if date is not None:
             for w in (line, text, date):
                 w.bind("<Enter>", lambda e: date.configure(fg=colour), add="+")
                 w.bind("<Leave>", lambda e: date.configure(fg=PAPER), add="+")
+
+    def _draw_later(self, later):
+        """The Later box (his ask, 2026-11-02: "pin it in a box for getting it done later so it
+        doesnt clutter up the rest"). His picks: above Done, folded to one line until clicked;
+        "Now" (shown under the mouse, or right-click) brings a note back."""
+        arrow = "▾" if self.later_open else "▸"
+        head = tk.Label(self.notes_frame, text=f"{arrow} Later ({len(later)}) · "
+                                               f"{self._total(later)}",
+                        font=self.f_head, bg=PAPER, fg=FADED_INK, anchor="w", cursor="hand2")
+        head.pack(fill="x", pady=(26, 4))
+        head.bind("<Button-1>", lambda e: self.toggle_later())
+        head.bind("<Enter>", lambda e: head.configure(fg=ACCENT))
+        head.bind("<Leave>", lambda e: head.configure(fg=FADED_INK))
+        if not self.later_open:
+            return
+        for note in later:
+            line = tk.Frame(self.notes_frame, bg=PAPER)
+            line.pack(fill="x", pady=2)
+            tk.Label(line, text="◦", font=self.f_todo, bg=PAPER, fg=FADED_INK,
+                     width=2).pack(side="left", padx=(0, 6), anchor="n")
+            remove = tk.Label(line, text="×", font=self.f_todo, bg=PAPER, fg=PAPER,
+                              cursor="hand2")
+            remove.pack(side="right", padx=(8, 4), anchor="n")
+            now = tk.Label(line, text="Now", font=self.f_small, bg=PAPER, fg=PAPER,
+                           cursor="hand2")
+            now.pack(side="right", padx=(8, 0), anchor="n")
+            self._size_tag(line, note)
+            text = tk.Label(line, text=note["text"], font=self.f_todo, bg=PAPER, fg=FADED_INK,
+                            anchor="w", justify="left")
+            text.pack(side="left", fill="x", expand=True)
+            self._wrap(text)
+            now.bind("<Button-1>", lambda e, n=note: self.now_note(n))
+            remove.bind("<Button-1>", lambda e, n=note: self.delete_note(n))
+            for w in (line, text):
+                w.bind("<Button-3>", lambda e, n=note: self.move_menu(n, e))
+            for w in (line, text, now, remove):
+                w.bind("<Enter>", lambda e, a=(now, remove): [x.configure(fg=FADED_INK)
+                                                             for x in a], add="+")
+                w.bind("<Leave>", lambda e, a=(now, remove): [x.configure(fg=PAPER)
+                                                             for x in a], add="+")
+            for w in (now, remove):
+                w.bind("<Enter>", lambda e, w=w: w.configure(fg=ACCENT), add="+")
+
+    def toggle_later(self):
+        self.later_open = not self.later_open
+        self.refresh(keep_scroll=True)
 
     def _draw_done(self, done):
         """The Done list as one block of text, not a row of widgets per item: it can run to
@@ -1091,11 +1162,38 @@ class VibeNote(tk.Tk):
     def move_menu(self, note, event):
         menu = tk.Menu(self, tearoff=0, bg=FIELD, fg=INK, activebackground=SIDEBAR_PICKED,
                        activeforeground=INK, font=self.f_side, relief="flat")
+        if note["status"] == "later":
+            menu.add_command(label="Now: bring it back", command=lambda: self.now_note(note))
+            menu.add_separator()
+        elif note["status"] in ("waiting", "sent"):
+            menu.add_command(label="Later: put it aside", command=lambda: self.later_note(note))
+            menu.add_separator()
+        if note["status"] == "sent":  # on the list already: it stays in this project
+            menu.tk_popup(event.x_root, event.y_root)
+            return
         menu.add_command(label="Move to…", state="disabled")
         for p in self.projects:
             if p is not self.current:
                 menu.add_command(label=p.title, command=lambda to=p: self.move_note(note, to))
         menu.tk_popup(event.x_root, event.y_root)
+
+    def later_note(self, note):
+        """Into the Later box; an item already on the to-do list comes off it (his pick)."""
+        p = self.current
+        if note["status"] == "sent":
+            try:
+                p.remove_from_todo(note["text"])
+            except OSError as err:
+                self.say(f"Couldn't take it off the list: {err.strerror or err}.", ACCENT)
+                return
+        self.store.later(p.slug, note["id"])
+        self.say("Put aside in Later")
+        self.refresh(keep_scroll=True)
+
+    def now_note(self, note):
+        self.store.now(self.current.slug, note["id"])
+        self.say("Back in Waiting to send")
+        self.refresh(keep_scroll=True)
 
     def move_note(self, note, to):
         self.store.move(self.current.slug, note["id"], to.slug)

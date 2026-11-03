@@ -59,6 +59,26 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(s.get("r62d", "done")[0]["text"], "Louder stairs")
         self.assertIn("done", s.get("r62d", "done")[0])
 
+    def test_later_and_back(self):
+        s = Store(self.path)
+        s.sync("r62d", [], [])
+        a = s.add("r62d", "Big new map")
+        b = s.add("r62d", "Louder stairs")
+        s.mark_sent("r62d", [b["id"]])
+        s.tick("r62d", [b["id"]], "work", True)
+        s.later("r62d", a["id"])
+        s.later("r62d", b["id"])
+        self.assertEqual(s.get("r62d"), [])
+        self.assertEqual(s.get("r62d", "sent"), [])
+        self.assertFalse(s.get("r62d", "later")[1]["work"])
+        # still listed on another branch: not brought back as sent, and not finished
+        self.assertFalse(s.sync("r62d", ["Louder stairs"], []))
+        s.organize("r62d")
+        self.assertEqual(len(s.get("r62d", "later")), 2)  # Organize keeps them
+        s.now("r62d", a["id"])
+        self.assertEqual(s.get("r62d")[0]["text"], "Big new map")
+        self.assertTrue(s.get("r62d")[0]["send"])
+
     def test_added_in_a_chat_counts_as_sent(self):
         s = Store(self.path)
         s.sync("glade", [], [])

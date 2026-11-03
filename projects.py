@@ -128,6 +128,29 @@ class Project:
         f.write_text("\n".join(lines) + "\n")
         return f
 
+    def remove_from_todo(self, text: str) -> bool:
+        """Take an open item off its to-do list (into Later). Returns whether it was there."""
+        f = self.todo_file()
+        if f is None:
+            return False
+        lines = f.read_text().splitlines()
+        start, end = _todo_section(lines)
+        if start is None:
+            start, end = 0, len(lines)
+        for i in range(start, end):
+            m = re.match(r"\s{0,3}[-*] (\[ \] )?(.*)", lines[i])
+            if not m:
+                continue
+            j = i + 1  # the indented lines that carry the item on
+            while j < end and lines[j].startswith("    ") and lines[j].strip():
+                j += 1
+            whole = " ".join([m.group(2)] + [ln.strip() for ln in lines[i + 1:j]])
+            whole = re.sub(r"^\d{4}-\d\d-\d\d:\s*", "", whole.strip()).replace("**", "")
+            if _same(whole, text):
+                f.write_text("\n".join(lines[:i] + lines[j:]) + "\n")
+                return True
+        return False
+
 
 HIS_LIST = r"^#+ .*\bblaney'?s list\b"
 

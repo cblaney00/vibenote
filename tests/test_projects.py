@@ -88,6 +88,17 @@ class ProjectsTest(unittest.TestCase):
         self.assertIn("- [ ] Fourth idea\n\n## Done", text)
         self.assertIn("- [x] Old thing", text)
 
+    def test_remove_from_list_for_later(self):
+        todo = R62D_STYLE.replace("- [ ] Second idea\n",
+                                  "- [ ] Long one\n      carried on here.\n- [ ] Second idea\n")
+        self.make("r62d", "title=R62D\n", todo, "r6-todo.md")
+        p = projects.find_projects(self.base)[0]
+        self.assertTrue(p.remove_from_todo("Long one carried on here."))
+        self.assertTrue(p.remove_from_todo("first idea"))
+        self.assertFalse(p.remove_from_todo("Old thing"))  # finished: left alone
+        self.assertEqual(p.todo_items(), ["Second idea"])
+        self.assertIn("- [x] Old thing", p.todo_file().read_text())
+
     def test_reads_finished_items(self):
         self.make("r62d", "title=R62D\n", R62D_STYLE + "- [x] Long one\n      carried on here.\n",
                   "r6-todo.md")

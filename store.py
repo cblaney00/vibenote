@@ -4,6 +4,8 @@ Every note has a status:
   waiting  written in VibeNote, not sent yet
   sent     on the project's to-do list, not finished yet
   done     gone from the to-do list (Claude finished it), or found already finished on import
+  later    put aside in the Later box (his ask, 2026-11-02): kept off the to-do list, and
+           skipped by Send, Work and Tick all, until he brings it back ("Now")
 Nothing is ever forgotten unless he deletes a waiting note himself.
 
 Two ticks per note (his ask): "send" (only ticked waiting notes are sent; new notes start
@@ -319,6 +321,22 @@ class Store:
                 note["sent"] = today()
         self.save()
 
+    def later(self, slug: str, note_id: str):
+        """Into the Later box: off the list, unticked, out of the way."""
+        for note in self.all(slug):
+            if note["id"] == note_id:
+                note.update(status="later", send=False, work=False, later=today())
+                note.pop("worked", None)
+        self.save()
+
+    def now(self, slug: str, note_id: str):
+        """Back out of the Later box: waiting again, ticked to send."""
+        for note in self.all(slug):
+            if note["id"] == note_id:
+                note.update(status="waiting", send=True)
+                note.pop("later", None)
+        self.save()
+
     def organize(self, slug: str):
         """Group the waiting notes, and the sent ones, by what Claude would work on together
         (his ask), smallest group first, and smallest note first inside each group. Each
@@ -335,7 +353,7 @@ class Store:
                 for n in sorted(members, key=lambda n: n["size"]):
                     n["group"] = heading
                     live.append(n)
-        self.notes[slug] = live + [n for n in notes if n["status"] == "done"]
+        self.notes[slug] = live + [n for n in notes if n["status"] not in ("waiting", "sent")]
         self.save()
 
     # --- keeping up with the project's to-do list -------------------------
@@ -361,9 +379,11 @@ class Store:
             changed = True
 
         # Something on the list VibeNote has not seen (added in a chat, or already there
-        # on import): it counts as sent
+        # on import): it counts as sent. One he put in Later is known (a shared game's other
+        # branches may still list it)
         for text in open_items:
-            if not any(n["status"] == "sent" and same(n["text"], text) for n in notes):
+            if not any(n["status"] in ("sent", "later") and same(n["text"], text)
+                       for n in notes):
                 note = {"id": new_id(), "text": text, "status": "sent", "imported": True,
                         "send": True, "work": False}
                 if not first:

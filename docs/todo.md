@@ -8,6 +8,7 @@ when one is finished, tick it and move it to **Done**.
 
 ## Done
 
+- [x] if there is a task that needs to be done later then pin it in a box for getting it done later so it doesnt clutter up the rest of the jobs that can be staged and done immidiately
 - [x] testing the fix
 - [x] for some reason it recognizses the pop up box that is giving us problems as Your only move is hustle
 - [x] make vibenote start up quicker, it seems to take longer than the app should need, if its loading in then it should have a loading graphic
