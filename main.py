@@ -43,6 +43,11 @@ def nice_date(iso):
         return iso
 
 
+# Pop-ups carry VibeNote's window class: a bare Tk pop-up is "Toplevel", which his desktop
+# couldn't place and showed as another app (Your Only Move Is HUSTLE, 2026-11-02)
+POPUP_CLASS = "Vibenote"
+
+
 class VibeNote(tk.Tk):
     def __init__(self):
         super().__init__(className="vibenote")
@@ -1285,7 +1290,7 @@ class SnapshotDetails(tk.Toplevel):
     """Everything the snapshot saw when he wrote the note, so the moment can be looked up."""
 
     def __init__(self, app, note):
-        super().__init__(app, bg=PAPER, padx=28, pady=22)
+        super().__init__(app, class_=POPUP_CLASS, bg=PAPER, padx=28, pady=22)
         self.title("When this note was written")
         self.transient(app)
         snap = note["snap"]
@@ -1403,7 +1408,7 @@ class TokenWarning(tk.Toplevel):
     """Asks him to agree before Work uses his Claude tokens. .agreed says what he chose."""
 
     def __init__(self, app, title, total, extra, cost=0, usage_text=""):
-        super().__init__(app, bg=PAPER, padx=28, pady=22)
+        super().__init__(app, class_=POPUP_CLASS, bg=PAPER, padx=28, pady=22)
         self.agreed = False
         self.title("This uses your tokens")
         self.transient(app)

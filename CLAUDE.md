@@ -159,6 +159,9 @@ new windows itself just after they appear. If it still doesn't stay, `centre_on`
 said to `~/.local/state/vibenote/centre.log`. **One VibeNote at a time** (`close_older_copies`):
 opening it closes any other copy he has running — an older copy left open (minimized) after an
 update kept the old code and put the warning in the corner again.
+Pop-ups are made with `class_=POPUP_CLASS` ("Vibenote"): a bare Tk pop-up has window class
+"Toplevel", and his desktop showed it as another app (Your Only Move Is HUSTLE, 2026-11-02).
+Any new pop-up must do the same.
 
 ## How it is built
 
