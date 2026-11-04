@@ -367,13 +367,16 @@ class VibeNote(tk.Tk):
         sent = self.store.get(p.slug, "sent")
         done = self.store.get(p.slug, "done")
         later = self.store.get(p.slug, "later")
+        review = self.store.get(p.slug, "review")
+        review.sort(key=lambda n: n.get("review", ""), reverse=True)
         # Newest first: finished since VibeNote started watching, then the imported ones
         # in the order the to-do file had them (its newest are at the top)
         done = sorted((n for n in done if n.get("done")), key=lambda n: n["done"],
                       reverse=True) + [n for n in done if not n.get("done")]
         self.title_label.configure(text=p.title)
         self.count_label.configure(
-            text=f"{len(notes)} waiting · {len(sent)} sent · {len(done)} done"
+            text=f"{len(notes)} waiting · {len(sent)} sent · "
+                 + (f"{len(review)} with Lando · " if review else "") + f"{len(done)} done"
                  + (f" · {len(later)} later" if later else ""))
 
         if notes or sent:
@@ -389,15 +392,23 @@ class VibeNote(tk.Tk):
             group = self._group_heading(note, group, totals)
             self._draw_note(note)
 
-        if sent:
-            self._heading(f"Sent: on its to-do list ({len(sent)}) · {self._total(sent)}", sent,
-                          send=False)
-            group, totals = None, self._group_totals(sent)
-            for note in sent:
+        # Sent, split (his ask, 2026-11-04): not started yet, and ones Claude has been on that
+        # he hasn't signed off
+        for title, part in (("Sent: on its to-do list", [n for n in sent if not n.get("worked")]),
+                            ("Worked on, not finished", [n for n in sent if n.get("worked")])):
+            if not part:
+                continue
+            self._heading(f"{title} ({len(part)}) · {self._total(part)}", part, send=False)
+            group, totals = None, self._group_totals(part)
+            for note in part:
                 group = self._group_heading(note, group, totals)
                 self._draw_history(note)
         if later:
             self._draw_later(later)
+        if review:
+            self._heading(f"Up for review by Lando ({len(review)})")
+            for note in review:
+                self._draw_history(note)
         if done:
             self._heading(f"Done ({len(done)})")
             self._draw_done(done)
@@ -568,7 +579,8 @@ class VibeNote(tk.Tk):
         box.tag_configure("where", foreground=ACCENT, font=self.f_small)
         box.tag_configure("hit", background=SIDEBAR_PICKED, foreground=INK)
         box.tag_configure("when", foreground=FADED_INK, font=self.f_small)
-        mark = {"waiting": "waiting", "sent": "on its list", "done": "done", "later": "in Later"}
+        mark = {"waiting": "waiting", "sent": "on its list", "done": "done", "later": "in Later",
+                "review": "with Lando"}
         for i, (p, n) in enumerate(hits[:200]):
             tag = f"go{i}"
             box.insert("end", f"{p.title} · {mark[n['status']]}\n", ("where", tag))
@@ -620,7 +632,7 @@ class VibeNote(tk.Tk):
             copy = Button(self.notes_frame, self.f_button, lambda: self._copy(short), main=False)
             copy.set("Copy the open ones for Claude")
             copy.pack(anchor="w", pady=(0, 6))
-        status = {"waiting": "•", "sent": "→", "done": "✓", "later": "◦"}
+        status = {"waiting": "•", "sent": "→", "done": "✓", "later": "◦", "review": "✓"}
         groups = group_notes([dict(n) for n in notes])
         groups.sort(key=lambda g: (g[0] == "On their own", -len(g[1])))
         box = tk.Text(self.notes_frame, bg=PAPER, fg=INK, font=self.f_todo, wrap="word",
@@ -630,10 +642,10 @@ class VibeNote(tk.Tk):
         box.tag_configure("done", foreground=FADED_INK)
         box.tag_configure("item", lmargin1=8, lmargin2=26)
         for heading, members in groups:
-            open_n = sum(m["status"] != "done" for m in members)
+            open_n = sum(m["status"] not in ("done", "review") for m in members)
             box.insert("end", f"{heading} · {len(members)} notes, {open_n} open\n", "head")
-            for m in sorted(members, key=lambda m: m["status"] == "done"):
-                tags = ("item", "done") if m["status"] == "done" else ("item",)
+            for m in sorted(members, key=lambda m: m["status"] in ("done", "review")):
+                tags = ("item", "done") if m["status"] in ("done", "review") else ("item",)
                 box.insert("end", f"{status[m['status']]}  {condense(m['text'])}\n", tags)
         box.delete("end-2c")
         box.configure(state="disabled")
@@ -819,21 +831,27 @@ class VibeNote(tk.Tk):
                  width=13, anchor="e").pack(side="right", padx=(10, 0), anchor="n", pady=pady)
 
     def _draw_history(self, note):
-        done = note["status"] == "done"
+        review = note["status"] == "review"  # finished, waiting on lando: shown like done
+        done = note["status"] == "done" or review
         line = tk.Frame(self.notes_frame, bg=PAPER)
         line.pack(fill="x", pady=2)
         # ✓ finished, → on the list
         tk.Label(line, text="✓" if done else "→", font=self.f_todo, bg=PAPER,
-                 fg=ACCENT if done else FADED_INK, width=2).pack(side="left", padx=(0, 6),
-                                                                 anchor="n")
+                 fg=WORK_GREEN if review else ACCENT if done else FADED_INK,
+                 width=2).pack(side="left", padx=(0, 6), anchor="n")
+        if review:
+            tk.Label(line, text="with Lando", font=self.f_small, bg=PAPER,
+                     fg=WORK_GREEN).pack(side="right", padx=(10, 4), anchor="n")
         if not done:
             self._tick_cell(line, note, "work")
             self._tick_cell(line, None, "send")
             self._size_tag(line, note)  # by the ticks, so the tags line up in a column
-        if done:
+        if review:
+            when = ""
+        elif done:
             when = nice_date(note["done"]) if note.get("done") else ""
         elif note.get("worked"):
-            when = f"Claude on it · {nice_date(note['worked'])}"
+            when = nice_date(note["worked"])  # its section already says Claude was on it
         else:
             when = nice_date(note["sent"]) if note.get("sent") else ""
         date = None
@@ -843,11 +861,20 @@ class VibeNote(tk.Tk):
             date = tk.Label(line, text=when, font=self.f_small, bg=PAPER, fg=PAPER)
             date.pack(side="right", padx=(10, 4), anchor="n")
         later = None
+        words = []  # the words that show under the mouse
         if not done:
             later = tk.Label(line, text="Later", font=self.f_small, bg=PAPER, fg=PAPER,
                              cursor="hand2")
             later.pack(side="right", padx=(8, 0), anchor="n")
             later.bind("<Button-1>", lambda e: self.later_note(note))
+            words.append(later)
+        if not done and note.get("worked"):
+            # He has checked it and it is done as far as he is going (his ask, 2026-11-04)
+            finish = tk.Label(line, text="Finished", font=self.f_small, bg=PAPER, fg=PAPER,
+                              cursor="hand2")
+            finish.pack(side="right", padx=(8, 0), anchor="n")
+            finish.bind("<Button-1>", lambda e: self.finish_note(note))
+            words.append(finish)
         text = tk.Label(line, text=note["text"], font=self.f_todo, bg=PAPER,
                         fg=FADED_INK if done else INK, anchor="w", justify="left")
         text.pack(side="left", fill="x", expand=True)
@@ -855,10 +882,12 @@ class VibeNote(tk.Tk):
         if later is not None:
             for w in (line, text):
                 w.bind("<Button-3>", lambda e: self.move_menu(note, e))
-            for w in (line, text, later):
-                w.bind("<Enter>", lambda e: later.configure(fg=FADED_INK), add="+")
-                w.bind("<Leave>", lambda e: later.configure(fg=PAPER), add="+")
-            later.bind("<Enter>", lambda e: later.configure(fg=ACCENT), add="+")
+            for w in (line, text, *words):
+                for word in words:
+                    w.bind("<Enter>", lambda e, word=word: word.configure(fg=FADED_INK), add="+")
+                    w.bind("<Leave>", lambda e, word=word: word.configure(fg=PAPER), add="+")
+            for word in words:
+                word.bind("<Enter>", lambda e, word=word: word.configure(fg=ACCENT), add="+")
         if date is not None:
             for w in (line, text, date):
                 w.bind("<Enter>", lambda e: date.configure(fg=colour), add="+")
@@ -959,14 +988,14 @@ class VibeNote(tk.Tk):
 
     def sync(self, results=None):
         """Bring the history in line with every project's to-do list. Returns whether it changed.
-        results: what a background read found ({slug: (open, done)}); else read here."""
+        results: what a background read found ({slug: (open, done, review)}); else read here."""
         if results is None:
             results = {p.slug: p.read() for p in self.projects}
         changed = False
         for p in self.projects:
             if p.slug in results:
-                open_items, done = results[p.slug]
-                changed |= self.store.sync(p.slug, open_items, done)
+                open_items, done, review = results[p.slug]
+                changed |= self.store.sync(p.slug, open_items, done, review)
         return changed
 
     def _reread_todo(self):
@@ -1188,6 +1217,22 @@ class VibeNote(tk.Tk):
                 return
         self.store.later(p.slug, note["id"])
         self.say("Put aside in Later")
+        self.refresh(keep_scroll=True)
+
+    def finish_note(self, note):
+        """He has checked it: ticked on its to-do list, so it turns done (or, in a game shared
+        with lando, up for his review) when the list is next read."""
+        p = self.current
+        try:
+            found = p.finish_in_todo(note["text"])
+        except OSError as err:
+            self.say(f"Couldn't tick it on the list: {err.strerror or err}.", ACCENT)
+            return
+        if not found:
+            self.say("Couldn't find it on the list (it may be on another branch).", ACCENT)
+            return
+        self.sync({p.slug: p.read()})
+        self.say("Ticked off as finished")
         self.refresh(keep_scroll=True)
 
     def now_note(self, note):

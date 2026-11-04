@@ -111,6 +111,19 @@ the to-do list** (a sent one is taken off it: `Project.remove_from_todo`) and Se
 all and Summary's "open ones for Claude" skip them. Status `later` in the store; `sync` counts
 an open item matching a Later note as known (a shared game's other branches may still list it).
 
+**Worked on / up for review** (his ask, 2026-11-04: "separate between notes that i have
+checked and completed ... from the notes that i havent quite finished", review ones "not
+include themselves in the work all button"; his picks: its own section, and a "Finished"
+word). The sent list splits into "Sent: on its to-do list" (not started) and "Worked on, not
+finished" (`worked` set by Work). A "Finished" word under the mouse on a worked item ticks it
+on the to-do file (`Project.finish_in_todo`). Status `review` = **Up for review by Lando**:
+for a shared game, an item ticked on some branch but not on `origin/main` (else `main`) —
+`Project.read()` returns `(open, done, review)`, review `None` if git couldn't tell (then
+nothing moves). Shown as its own section above Done, faded, ✓ in green and "with Lando"; no
+ticks, so Work and Tick all skip it; done once lando merges. Matching (`store.same`) ignores
+the `*(...)*` notes Claude writes under an item, so a note no longer turns into a new item
+when Claude adds one; `sync` merges old twins left by that.
+
 **Find** (Ctrl+F, his ask): a box over the page; every note in every project (and its
 snapshot) with all the words, lit up; click one to open its project; Esc goes back.
 
@@ -157,7 +170,7 @@ Ask him before changing the look.
 and a **Work** tick (green, starts unticked); items already on the list have only a Work tick.
 Send sends only Send-ticked notes; Work gives Claude only Work-ticked items (a Work-ticked
 note not yet sent is added to the list first), then the Work tick comes off and the item
-shows "Claude on it · date". Clicking a column title ticks or unticks the whole column.
+moves to "Worked on, not finished". Clicking a column title ticks or unticks the whole column.
 A **"Tick all:"** row above the lists (his ask, 2026-11-02) ticks every waiting note for Send,
 everything open for Work, or unticks it all (`_tick_all_row`).
 

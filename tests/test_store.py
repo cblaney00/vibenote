@@ -166,6 +166,42 @@ class StoreTest(unittest.TestCase):
         s.edit("r62d", n["id"], "add a new level with a boss")
         self.assertEqual(size_label(s.get("r62d")[0]["size"]), "Big")
 
+    def test_up_for_review_then_done_when_merged(self):
+        s = Store(self.path)
+        s.sync("sub", ["Portholes"], [])
+        s.mark_worked("sub", [s.get("sub", "sent")[0]["id"]])
+        self.assertTrue(s.sync("sub", [], [], ["Portholes *(Done: three.)*"]))
+        self.assertEqual(s.get("sub", "sent"), [])
+        self.assertEqual(len(s.get("sub", "review")), 1)
+        self.assertFalse(s.sync("sub", [], [], ["Portholes"]))   # still waiting on lando
+        self.assertFalse(s.sync("sub", [], [], None))            # git didn't answer: kept
+        self.assertTrue(s.sync("sub", [], ["Portholes"], []))     # merged
+        self.assertEqual([n["text"] for n in s.get("sub", "done")], ["Portholes"])
+        self.assertEqual(s.get("sub", "review"), [])
+
+    def test_review_on_first_import_and_unseen(self):
+        s = Store(self.path)
+        s.sync("sub", [], ["Old"], ["Waiting on lando"])
+        self.assertEqual([n["text"] for n in s.get("sub", "review")], ["Waiting on lando"])
+        s.sync("sub", [], ["Old"], ["Waiting on lando", "Another"])
+        self.assertEqual(len(s.get("sub", "review")), 2)
+        self.assertEqual(len(s.get("sub", "done")), 1)
+
+    def test_claudes_note_does_not_make_a_new_item(self):
+        s = Store(self.path)
+        s.sync("x", ["quieter steps"], [])
+        self.assertFalse(s.sync("x", ["quieter steps *(Redone. Left open (for now).)*"], []))
+        self.assertEqual(len(s.get("x", "sent")), 1)
+
+    def test_old_twins_are_merged(self):
+        s = Store(self.path)
+        s.sync("x", ["steps"], [])
+        s.notes["x"].append({"id": "b", "text": "steps *(Redone.)*", "status": "sent",
+                             "send": True, "work": False, "worked": "2026-11-04"})
+        self.assertTrue(s.sync("x", ["steps *(Redone.)*"], []))
+        self.assertEqual(len(s.get("x", "sent")), 1)
+        self.assertEqual(s.get("x", "sent")[0]["worked"], "2026-11-04")
+
 
 if __name__ == "__main__":
     unittest.main()

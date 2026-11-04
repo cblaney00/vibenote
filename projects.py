@@ -6,6 +6,8 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from store import same as _same
+
 PROJECTS_DIR = Path(os.environ.get("VIBENOTE_PROJECTS", "/home/insideabush/projects"))
 
 
@@ -35,16 +37,17 @@ class Project:
                 continue
         return None
 
-    def _versions(self) -> list[list[str]]:
-        """The to-do file's lines as it is now, and, for a game shared with lando, also as it is
-        on each of the repo's branches: its folder hops between branches, and an item must not
-        look finished just because the branch on show is one that never had it."""
+    def _versions(self) -> list[tuple[str, list[str]]]:
+        """(where, lines) of the to-do file as it is now ("" for the folder), and, for a game
+        shared with lando, also as it is on each of the repo's branches: its folder hops
+        between branches, and an item must not look finished just because the branch on show
+        is one that never had it."""
         f = self.todo_file()
         if not f:
             return []
         versions = []
         try:
-            versions.append(f.read_text().splitlines())
+            versions.append(("", f.read_text().splitlines()))
         except OSError:
             pass
         if self.shared:
@@ -60,34 +63,49 @@ class Project:
                     out = subprocess.run(["git", "-C", str(self.path), "show", f"{ref}:{rel}"],
                                          capture_output=True, text=True, timeout=5)
                     if out.returncode == 0:
-                        versions.append(out.stdout.splitlines())
+                        versions.append((ref, out.stdout.splitlines()))
             except (OSError, subprocess.SubprocessError):
                 pass
         return versions
 
     def _read(self):
-        """(open items, finished items) across every version; None for open when there is no list."""
+        """(open items, finished items, up for review) across every version; None for open
+        when there is no list, and None for review when that couldn't be told. Up for review (his ask, 2026-11-04): in a game shared with
+        lando, finished on one of Blaney's branches but not yet on main, so waiting on lando's
+        PR review; it turns plain finished once lando merges it."""
         versions = self._versions()
         if not versions:
-            return None, []
+            return None, [], []
         whole_file = "todo" in self.todo_file().name.lower()  # a list file with no headings
-        open_items, done = [], []
-        for lines in versions:
+        refs = [ref for ref, _ in versions]
+        main = next((r for r in ("refs/remotes/origin/main", "refs/heads/main") if r in refs),
+                    None)
+        open_items, done, main_done = [], [], []
+        for ref, lines in versions:
             start, end = _todo_section(lines)
             if start is None and not whole_file:
                 continue  # e.g. an older branch of the roadmap, from before his list was in it
             part = lines[start:end] if start is not None else lines
+            finished = [text for ticked, text in _items(part) if ticked]
             for ticked, text in _items(part):
-                _add(done if ticked else open_items, text)
+                if not ticked:
+                    _add(open_items, text)
             d_start, d_end = _section(lines, r"done")
             if d_start is not None:
-                for _, text in _items(lines[d_start:d_end]):
-                    _add(done, text)
+                finished += [text for _, text in _items(lines[d_start:d_end])]
+            for text in finished:
+                _add(done, text)
+                if ref == main:
+                    _add(main_done, text)
         open_items = [t for t in open_items if not any(_same(t, d) for d in done)]
-        return open_items, done
+        review = None if self.shared else []  # None: couldn't tell (no main branch read)
+        if main:
+            review = [d for d in done if not any(_same(d, m) for m in main_done)]
+            done = [d for d in done if d not in review]
+        return open_items, done, review
 
     def read(self):
-        """(open items, finished items) in one go: what VibeNote's history is matched against."""
+        """(open items, finished items, up for review) in one go: what VibeNote's history is matched against."""
         return self._read()
 
     def todo_items(self) -> list[str] | None:
@@ -97,6 +115,10 @@ class Project:
     def done_items(self) -> list[str]:
         """What its to-do list says is finished: ticked items, and everything under "Done"."""
         return self._read()[1]
+
+    def review_items(self) -> list[str]:
+        """Finished on one of Blaney's branches, waiting for lando to merge it into main."""
+        return self._read()[2]
 
     def add_to_todo(self, notes: list[str]) -> Path:
         """Put the notes on the bottom of its to-do list, making the file if there is none."""
@@ -128,11 +150,11 @@ class Project:
         f.write_text("\n".join(lines) + "\n")
         return f
 
-    def remove_from_todo(self, text: str) -> bool:
-        """Take an open item off its to-do list (into Later). Returns whether it was there."""
+    def _find_item(self, text: str):
+        """(lines, first line, end line) of an open item on its to-do list, or None."""
         f = self.todo_file()
         if f is None:
-            return False
+            return None
         lines = f.read_text().splitlines()
         start, end = _todo_section(lines)
         if start is None:
@@ -147,9 +169,28 @@ class Project:
             whole = " ".join([m.group(2)] + [ln.strip() for ln in lines[i + 1:j]])
             whole = re.sub(r"^\d{4}-\d\d-\d\d:\s*", "", whole.strip()).replace("**", "")
             if _same(whole, text):
-                f.write_text("\n".join(lines[:i] + lines[j:]) + "\n")
-                return True
-        return False
+                return lines, i, j
+        return None
+
+    def remove_from_todo(self, text: str) -> bool:
+        """Take an open item off its to-do list (into Later). Returns whether it was there."""
+        found = self._find_item(text)
+        if found is None:
+            return False
+        lines, i, j = found
+        self.todo_file().write_text("\n".join(lines[:i] + lines[j:]) + "\n")
+        return True
+
+    def finish_in_todo(self, text: str) -> bool:
+        """Tick an open item on its to-do list: he has checked it and it is done as far as he
+        is going (his ask, 2026-11-04, "Finished"). Returns whether it was there."""
+        found = self._find_item(text)
+        if found is None:
+            return False
+        lines, i, _ = found
+        lines[i] = re.sub(r"^(\s{0,3}[-*] )(\[ \] )?", r"\1[x] ", lines[i], count=1)
+        self.todo_file().write_text("\n".join(lines) + "\n")
+        return True
 
 
 HIS_LIST = r"^#+ .*\bblaney'?s list\b"
@@ -185,10 +226,6 @@ def _items(lines):
         elif items and line.startswith("    ") and line.strip():
             items[-1][1] += " " + line.strip()
     return [(ticked, text) for ticked, text in items if text]
-
-
-def _same(a, b):
-    return " ".join(a.split()).lower() == " ".join(b.split()).lower()
 
 
 def _add(items, text):

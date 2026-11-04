@@ -1,3 +1,4 @@
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -139,6 +140,52 @@ class ProjectsTest(unittest.TestCase):
         p.add_to_todo(["Louder sonar"])
         self.assertEqual(p.todo_file(), self.base / "sub-of-seas" / "docs" / "todo.md")
         self.assertEqual(p.todo_items(), ["Louder sonar"])
+
+    def test_finished_ticks_it(self):
+        self.make("r62d", "title=R62D\n", R62D_STYLE, "r6-todo.md")
+        p = projects.find_projects(self.base)[0]
+        self.assertTrue(p.finish_in_todo("second idea"))
+        self.assertFalse(p.finish_in_todo("Old thing"))
+        self.assertEqual(p.todo_items(), ["First idea"])
+        self.assertIn("Second idea", p.done_items())
+
+    def test_claudes_notes_under_an_item_still_match(self):
+        todo = R62D_STYLE.replace("- [ ] Second idea\n",
+                                  "- [ ] Second idea\n      *(Redone: quieter. Left open.)*\n")
+        self.make("r62d", "title=R62D\n", todo, "r6-todo.md")
+        p = projects.find_projects(self.base)[0]
+        self.assertTrue(p.finish_in_todo("Second idea"))
+
+    def test_shared_game_finished_on_a_branch_is_up_for_review(self):
+        d = self.make("sub-of-seas", "title=sub-of-seas\nkind=game\nshared=lando/sub\n",
+                      ROADMAP, "docs/roadmap.md")
+
+        def git(*args):
+            subprocess.run(["git", "-C", str(d), "-c", "user.name=t", "-c", "user.email=t@t",
+                            *args], check=True, capture_output=True)
+        git("init", "-b", "main")
+        git("add", ".")
+        git("commit", "-m", "list")
+        git("checkout", "-b", "blaney/portholes")
+        roadmap = d / "docs" / "roadmap.md"
+        roadmap.write_text(roadmap.read_text().replace(
+            "- [ ] **Portholes**: windows to look out of.",
+            "- [x] **Portholes**: windows to look out of.\n      *(Done: three of them.)*"))
+        git("commit", "-am", "portholes")
+        git("checkout", "main")
+        p = projects.find_projects(self.base)[0]
+        open_items, done, review = p.read()
+        self.assertEqual(open_items, [])
+        self.assertEqual(done, ["Pause menu: Esc brings up a menu."])
+        self.assertEqual(len(review), 1)
+        self.assertTrue(review[0].startswith("Portholes"))
+        git("merge", "blaney/portholes")  # lando merged it
+        self.assertEqual(p.read()[2], [])
+        self.assertEqual(len(p.read()[1]), 2)
+
+    def test_not_shared_has_no_review(self):
+        self.make("r62d", "title=R62D\n", R62D_STYLE, "r6-todo.md")
+        self.assertEqual(projects.find_projects(self.base)[0].read()[2], [])
 
 
 if __name__ == "__main__":

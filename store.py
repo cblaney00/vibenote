@@ -4,6 +4,8 @@ Every note has a status:
   waiting  written in VibeNote, not sent yet
   sent     on the project's to-do list, not finished yet
   done     gone from the to-do list (Claude finished it), or found already finished on import
+  review   finished in a game shared with lando, waiting for him to merge it (his ask,
+           2026-11-04): no Work tick, skipped by Work and Tick all; done once it is on main
   later    put aside in the Later box (his ask, 2026-11-02): kept off the to-do list, and
            skipped by Send, Work and Tick all, until he brings it back ("Now")
 Nothing is ever forgotten unless he deletes a waiting note himself.
@@ -36,8 +38,14 @@ def today() -> str:
     return date.today().isoformat()
 
 
+def bare(text: str) -> str:
+    """His words without the *(...)* notes Claude writes under an item about what it did, so
+    an item still matches itself after Claude has added one."""
+    return " ".join(re.sub(r"\*\(.*?\)\*", " ", text).split()).lower()
+
+
 def same(a: str, b: str) -> bool:
-    return " ".join(a.split()).lower() == " ".join(b.split()).lower()
+    return bare(a) == bare(b)
 
 
 # --- how big a change is: a free rough guess, no Claude (his ask: "Organize") ---
@@ -358,46 +366,85 @@ class Store:
 
     # --- keeping up with the project's to-do list -------------------------
 
-    def sync(self, slug: str, open_items: list[str] | None, done_items: list[str]) -> bool:
+    def sync(self, slug: str, open_items: list[str] | None, done_items: list[str],
+             review_items: list[str] = ()) -> bool:
         """Match the history to what the to-do list says now. Returns whether anything changed.
 
         open_items is None when the project has no to-do list to read; then nothing is
         marked done (a list that has gone missing, say on another branch, finishes nothing).
+        review_items: finished on a branch of a shared game, waiting for lando's review;
+        None when that couldn't be told (git didn't answer): what is in review stays there.
         """
         if open_items is None:
             return False
         notes = self.notes.setdefault(slug, [])
+        if review_items is None:
+            review_items = [n["text"] for n in notes if n["status"] == "review"]
         changed = False
+
+        def listed(n, items):
+            return any(same(n["text"], t) for t in items)
 
         first = slug not in self.imported
         if first:
             # First look at this project: bring in its whole list, finished items too
-            for text in done_items:
-                notes.append({"id": new_id(), "text": text, "status": "done", "imported": True,
-                              "send": True, "work": False})
+            for status, items in (("done", done_items), ("review", review_items)):
+                for text in items:
+                    notes.append({"id": new_id(), "text": text, "status": status,
+                                  "imported": True, "send": True, "work": False})
             self.imported.append(slug)
             changed = True
 
         # Something on the list VibeNote has not seen (added in a chat, or already there
         # on import): it counts as sent. One he put in Later is known (a shared game's other
         # branches may still list it)
-        for text in open_items:
-            if not any(n["status"] in ("sent", "later") and same(n["text"], text)
-                       for n in notes):
-                note = {"id": new_id(), "text": text, "status": "sent", "imported": True,
-                        "send": True, "work": False}
-                if not first:
-                    note["sent"] = today()  # the day VibeNote first saw it there
-                notes.append(note)
+        for status, items in (("sent", open_items), ("review", review_items)):
+            for text in items:
+                if not any(n["status"] in ("sent", "later", "review") and same(n["text"], text)
+                           for n in notes):
+                    if status == "review" and any(n["status"] == "done" and
+                                                  same(n["text"], text) for n in notes):
+                        continue  # a done one goes back to review just below
+                    note = {"id": new_id(), "text": text, "status": status, "imported": True,
+                            "send": True, "work": False}
+                    if not first:
+                        note["sent"] = today()  # the day VibeNote first saw it there
+                    notes.append(note)
+                    changed = True
+
+        for n in notes:
+            if n["status"] in ("sent", "done") and listed(n, review_items):
+                # Finished on Blaney's branch, not merged yet: up for lando's review
+                n.update(status="review", work=False, review=n.get("review") or today())
+                n.pop("done", None)
+                changed = True
+            elif n["status"] == "review" and not listed(n, review_items):
+                if listed(n, open_items):
+                    n["status"] = "sent"  # unticked again
+                else:
+                    n.update(status="done", done=today())  # lando merged it
+                changed = True
+            elif n["status"] == "sent" and not listed(n, open_items):
+                # Sent, but no longer on the list: Claude finished it
+                n.update(status="done", work=False, done=today())
                 changed = True
 
-        # Sent, but no longer on the list: Claude finished it
+        # The same item twice on the list or in review: from before Claude's *(...)* notes
+        # under an item were matched to it, each new note made it look like a new item
+        keep = []
         for n in notes:
-            if n["status"] == "sent" and not any(same(n["text"], t) for t in open_items):
-                n["status"] = "done"
-                n["work"] = False
-                n["done"] = today()
-                changed = True
+            twin = next((k for k in keep if k["status"] == n["status"] in ("sent", "review")
+                         and same(k["text"], n["text"])), None)
+            if twin is None:
+                keep.append(n)
+                continue
+            for key in ("worked", "snap", "size", "group"):
+                if key in n and key not in twin:
+                    twin[key] = n[key]
+            if len(n["text"]) > len(twin["text"]):
+                twin["text"] = n["text"]  # the newest, with Claude's latest note
+            changed = True
+        notes[:] = keep
 
         if changed:
             self.save()
