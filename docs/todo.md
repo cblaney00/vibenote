@@ -5,9 +5,10 @@ when one is finished, tick it and move it to **Done**.
 
 ## To do
 
-- [ ] get hooked up to the new Infernal Ascension game when its ready
 
 ## Done
+
+- [x] get hooked up to the new Infernal Ascension game when its ready
 
 - [x] make it so i can drag around the order of my projects somewhat smoothly and pin ones through a right click option
 - [x] add the ability to look through tips on making token usage lighter that vibenote has picked up over time
