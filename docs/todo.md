@@ -5,6 +5,7 @@ when one is finished, tick it and move it to **Done**.
 
 ## To do
 
+- [ ] get hooked up to the new Infernal Ascension game when its ready
 
 ## Done
 
