@@ -157,9 +157,13 @@ class VibeNote(tk.Tk):
         self.sign_why = tk.Label(sign, font=self.f_small, bg=SIDEBAR, fg=FADED_INK, anchor="w",
                                  justify="left", wraplength=184)
         self.sign_why.pack(fill="x")
-        self.sign_more = SmallButton(sign, self.f_small, lambda: self.show("usage"), ACCENT,
+        links = tk.Frame(sign, bg=SIDEBAR)
+        links.pack(anchor="w", pady=(8, 0))
+        self.sign_more = SmallButton(links, self.f_small, lambda: self.show("usage"), ACCENT,
                                      "Claude usage ›")
-        self.sign_more.pack(anchor="w", pady=(8, 0))
+        self.sign_more.pack(side="left")
+        SmallButton(links, self.f_small, self.show_tips, ACCENT, "Tips ›").pack(
+            side="left", padx=(8, 0))
         for w in (sign, self.sign_title, self.sign_why):
             w.configure(cursor="hand2")
             w.bind("<Button-1>", lambda e: self.show("usage"))
@@ -291,13 +295,18 @@ class VibeNote(tk.Tk):
         self._draw_page(keep_scroll)
 
     def _sort(self):
-        """Longest lists on top (his ask): every note it has ever had, waiting, sent and done."""
-        self.projects.sort(key=lambda p: (-len(self.store.all(p.slug)), p.title.lower()))
+        """His order (his ask, 2026-11-04: drag them, pin some): pinned on top, then where he
+        dragged them; ones not placed yet at the bottom, longest lists first."""
+        order = self.store.sidebar_order([p.slug for p in self.projects])
+        self.projects.sort(key=lambda p: order.index(p.slug))
 
     def _draw_sidebar(self):
+        if getattr(self, "_drag", None):
+            return  # not while he is dragging a project; the drop draws it again
         for w in self.list_box.winfo_children():
             w.destroy()
         self._sort()
+        self._rows = []
         for p in self.projects:
             picked = p is self.current and self.view is None
             waiting = len(self.store.get(p.slug))
@@ -309,9 +318,77 @@ class VibeNote(tk.Tk):
             name.pack(side="left", fill="x", expand=True, padx=(18, 4), pady=7)
             num = tk.Label(row, text=str(waiting) if waiting else "", bg=bg, fg=ACCENT,
                            font=self.f_side_picked)
-            num.pack(side="right", padx=14)
-            for w in (row, name, num):
-                w.bind("<Button-1>", lambda e, proj=p: self.pick(proj))
+            num.pack(side="right", padx=(0, 14))
+            if p.slug in self.store.pinned:
+                tk.Label(row, text="⚑", bg=bg, fg=FADED_INK, font=self.f_small).pack(
+                    side="right", padx=(0, 6))
+            for w in (row, *row.winfo_children()):
+                w.bind("<ButtonPress-1>", lambda e, proj=p, r=row: self._drag_start(e, proj, r))
+                w.bind("<B1-Motion>", self._drag_move)
+                w.bind("<ButtonRelease-1>", self._drag_end)
+                w.bind("<Button-3>", lambda e, proj=p: self._project_menu(proj, e))
+            self._rows.append((p, row))
+
+    # Dragging a project up or down the sidebar (his ask, 2026-11-04). The row follows the
+    # mouse by being packed into its new place as it passes each neighbour; only a drop
+    # saves. A plain click (no real move) still picks the project.
+    def _drag_start(self, event, project, row):
+        self._drag = {"p": project, "row": row, "y": event.y_root, "moved": False}
+
+    def _drag_move(self, event):
+        d = getattr(self, "_drag", None)
+        if not d:
+            return
+        if not d["moved"]:
+            if abs(event.y_root - d["y"]) < 6:
+                return
+            d["moved"] = True
+            self.list_box.configure(cursor="fleur")
+            for w in (d["row"], *d["row"].winfo_children()):
+                w.configure(bg=RULE)
+        pinned = d["p"].slug in self.store.pinned
+        group = [(p, r) for p, r in self._rows if (p.slug in self.store.pinned) == pinned]
+        y = event.y_root - self.list_box.winfo_rooty()
+        target = len(group) - 1
+        for i, (p, r) in enumerate(group):
+            if y < r.winfo_y() + r.winfo_height() / 2:
+                target = i
+                break
+        now = next(i for i, (p, r) in enumerate(group) if r is d["row"])
+        if target == now:
+            return
+        item = self._rows.pop(self._rows.index((d["p"], d["row"])))
+        if target < now:
+            before = group[target][1]
+            self._rows.insert(self._rows.index(group[target]), item)
+            d["row"].pack_configure(before=before)
+        else:
+            after = group[target][1]
+            self._rows.insert(self._rows.index(group[target]) + 1, item)
+            d["row"].pack_configure(after=after)
+
+    def _drag_end(self, event):
+        d, self._drag = getattr(self, "_drag", None), None
+        if not d:
+            return
+        if not d["moved"]:
+            self.pick(d["p"])
+            return
+        self.list_box.configure(cursor="")
+        self.store.set_order([p.slug for p, _ in self._rows])
+        self.refresh(keep_scroll=True)  # also catches up on anything held back while dragging
+
+    def _project_menu(self, project, event):
+        menu = tk.Menu(self, tearoff=0, bg=FIELD, fg=INK, activebackground=SIDEBAR_PICKED,
+                       activeforeground=INK, font=self.f_side, relief="flat")
+        pinned = project.slug in self.store.pinned
+        menu.add_command(label="Unpin" if pinned else "Pin to the top",
+                         command=lambda: self._pin(project))
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def _pin(self, project):
+        self.store.toggle_pin(project.slug, [p.slug for p in self.projects])
+        self._draw_sidebar()
 
     def show(self, view):
         """Switch the main area: None (the project's notes), "usage", "find", "summary"."""
@@ -475,6 +552,7 @@ class VibeNote(tk.Tk):
         if not usage:
             self._line("No usage learned yet. It appears after Claude finishes a Work batch.",
                        fg=FADED_INK)
+            self._draw_tips(usage)
             return
         logged = next((a for a in report["accounts"] if a["logged_in"]), None)
         if report["use_now"]:
@@ -530,6 +608,18 @@ class VibeNote(tk.Tk):
         self._line("Which account was logged in is only known from 2 Nov; before that it "
                    "counts as Account 2. The numbers get better as VibeNote sees more.",
                    font=self.f_small, fg=FADED_INK, pady=(18, 0))
+        self._draw_tips(usage)
+
+    def _draw_tips(self, usage):
+        """Tips for lighter tokens, at the bottom of the usage page (his pick, 2026-11-04)."""
+        self._heading("Tips for lighter tokens · learned from your chats")
+        for tip in sender.token_tips(usage, self.guess, self._title_of):
+            self._line(f"•  {tip}", pady=(0, 6))
+
+    def show_tips(self):
+        self.show("usage")
+        # after the notes have wrapped, so the bottom is the real bottom
+        self.after(150, lambda: self.canvas.yview_moveto(1.0))
 
     def _edit_refresh(self, acc, label):
         box = tk.Entry(self.notes_frame, font=self.f_todo, bg=FIELD, fg=INK, relief="flat",
@@ -1597,8 +1687,12 @@ class TokenWarning(tk.Toplevel):
 if __name__ == "__main__":
     if "--collect-usage" in sys.argv:
         # Run as root (by Claude at the end of a Work batch): learn from Claude's chats
-        sender.save_usage(sender.collect_usage(previous=sender.load_saved_usage()))
-        print(f"VibeNote: token use saved to {sender.USAGE}")
+        previous = sender.load_saved_usage()
+        if sender.save_if_better(sender.collect_usage(previous=previous), previous):
+            print(f"VibeNote: token use saved to {sender.USAGE}")
+        else:
+            print("VibeNote: couldn't see Claude's chats from here, so the saved token use "
+                  "was kept. Run it as root, outside any sandbox.")
     else:
         close_older_copies()
         VibeNote().mainloop()

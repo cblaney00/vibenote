@@ -239,6 +239,8 @@ class Store:
         self.path = path or data_file()
         self.notes: dict[str, list[dict]] = {}
         self.imported: list[str] = []  # projects whose old to-do lists have been brought in
+        self.order: list[str] = []   # the sidebar order he dragged them into (his ask, 2026-11-04)
+        self.pinned: list[str] = []  # pinned to the top of the sidebar
         self.load()
 
     def load(self):
@@ -246,8 +248,10 @@ class Store:
             data = json.loads(self.path.read_text())
             self.notes = data["notes"]
             self.imported = data.get("imported", [])
+            self.order = data.get("order", [])
+            self.pinned = data.get("pinned", [])
         except (FileNotFoundError, KeyError, ValueError, TypeError):
-            self.notes, self.imported = {}, []
+            self.notes, self.imported, self.order, self.pinned = {}, [], [], []
         for notes in self.notes.values():
             for n in notes:
                 n.setdefault("status", "waiting")
@@ -257,8 +261,34 @@ class Store:
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"notes": self.notes, "imported": self.imported}, indent=2))
+        tmp.write_text(json.dumps({"notes": self.notes, "imported": self.imported,
+                                   "order": self.order, "pinned": self.pinned}, indent=2))
         tmp.replace(self.path)
+
+    # --- the sidebar's order ------------------------------------------------
+
+    def sidebar_order(self, slugs: list[str]) -> list[str]:
+        """Pinned first, then the rest, each in the order he dragged them into. Projects he
+        hasn't placed yet go at the bottom, longest lists first (the old order)."""
+        placed = {s: i for i, s in enumerate(self.order)}
+        return sorted(slugs, key=lambda s: (s not in self.pinned, s not in placed,
+                                            placed.get(s, 0), -len(self.all(s)), s))
+
+    def set_order(self, slugs: list[str]):
+        self.order = list(slugs)
+        self.save()
+
+    def toggle_pin(self, slug: str, order: list[str]):
+        """Pin it to the top, or unpin it (it goes back just under the pinned ones)."""
+        if slug in self.pinned:
+            self.pinned.remove(slug)
+        else:
+            self.pinned.append(slug)
+        self.order = [s for s in order if s != slug]
+        rest = [s for s in self.order if s not in self.pinned]
+        at = self.order.index(rest[0]) if rest else len(self.order)
+        self.order.insert(at if slug not in self.pinned else 0, slug)
+        self.save()
 
     # --- reading ----------------------------------------------------------
 

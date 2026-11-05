@@ -396,6 +396,20 @@ def save_usage(usage: dict, path: Path = USAGE):
         os.chown(path, st.st_uid, st.st_gid)
 
 
+def replies(usage: dict | None) -> int:
+    return sum(h[0] for h in (usage or {}).get("hours", {}).values())
+
+
+def save_if_better(usage: dict, previous: dict | None, path: Path = USAGE) -> bool:
+    """Save, unless it found no chats at all where the saved one had some: that is a run
+    that couldn't see them (as him, or inside a sandbox), and it once wiped everything
+    VibeNote had learned (2026-11-04)."""
+    if replies(usage) == 0 and replies(previous) > 0:
+        return False
+    save_usage(usage, path)
+    return True
+
+
 def load_saved_usage(path: Path = USAGE) -> dict | None:
     try:
         return json.loads(path.read_text())
@@ -407,9 +421,11 @@ def load_usage(path: Path = USAGE) -> dict | None:
     """The latest summary: collected here if this user can read the chats, else the file."""
     if os.access(TRANSCRIPTS, os.R_OK | os.X_OK):
         try:
-            usage = collect_usage(previous=load_saved_usage(path))
-            save_usage(usage, path)
-            return usage
+            previous = load_saved_usage(path)
+            usage = collect_usage(previous=previous)
+            if save_if_better(usage, previous, path):
+                return usage
+            return previous
         except OSError:
             pass
     return load_saved_usage(path)
@@ -473,6 +489,71 @@ class TokenGuess:
         """when: the time it would run (now if not given)."""
         rate = self.per_project.get(project, self.per_point)
         return round(max(size, 0.5) * rate * self.factor(when))
+
+
+def token_tips(usage: dict | None, guess: "TokenGuess", title=lambda slug: slug) -> list[str]:
+    """Ways to make Claude's token use lighter (his ask, 2026-11-04: "tips ... that vibenote
+    has picked up over time"): worked out from his own chats where there is enough to say,
+    then the general ones that always hold."""
+    from datetime import datetime
+    usage = usage or {}
+    t = short_tokens
+    tips = []
+
+    def median(xs):
+        xs = sorted(xs)
+        return xs[len(xs) // 2] if xs else None
+
+    # Items given to Claude together vs one at a time
+    batches = usage.get("batches", [])
+    alone = median([b["tokens"] for b in batches if len(b["items"]) == 1])
+    together = median([b["tokens"] / len(b["items"]) for b in batches if len(b["items"]) >= 3])
+    if alone and together and together < alone * 0.8:
+        tips.append(f"Give Claude several items at once. One item on its own has cost you "
+                    f"{t(alone)}; in a batch of 3 or more, {t(together)} each, as Claude "
+                    "reads the project once for all of them.")
+    # Chats that grew long: each step re-reads the whole chat
+    big = [c for c in usage.get("chats", {}).values() if c.get("context", 0) > LONG_CHAT]
+    if big:
+        worst = max(big, key=lambda c: c["context"])
+        tips.append(f"{len(big)} of this week's chats grew past {t(LONG_CHAT)} (the biggest, "
+                    f"{t(worst['context'])}, in {title(worst['project'])}). Every step Claude re-reads "
+                    "the whole chat, so a fresh one is much lighter: Work starts one for you, "
+                    "or type /clear between unrelated jobs.")
+    # Times he ran into the 5-hour limit
+    fives = [h for h in usage.get("hits", []) if h.get("type") == "five_hour" and h.get("at")]
+    if fives:
+        hours = [datetime.fromisoformat(h["at"].replace("Z", "+00:00")).astimezone().hour
+                 for h in fives]
+        part = median([(h - 5) % 24 for h in hours])  # the day starting at 5am
+        when = ("in the morning" if part < 7 else "in the afternoon" if part < 12
+                else "in the evening" if part < 18 else "late at night")
+        tips.append(f"You've hit the 5-hour limit {len(fives)} times, mostly {when}. Spreading "
+                    "big jobs over the day (or across both accounts) keeps you from waiting "
+                    "out a limit.")
+    # Busy hours
+    tips.append(f"Weekdays 8am-2pm (Claude's busy hours) the same work uses up about "
+                f"{round((guess.busy_factor - 1) * 100)}% more of your limit"
+                + ("" if guess.busy_learned else " (a guess until VibeNote sees more limits)")
+                + ". Save Big items for outside them.")
+    # Projects where a change costs most
+    rates = sorted(((r, p) for p, r in guess.per_project.items() if r), reverse=True)
+    if len(rates) >= 2 and rates[0][0] > rates[-1][0] * 1.5:
+        (hi, hp), (lo, lp) = rates[0], rates[-1]
+        hp, lp = title(hp), title(lp)
+        tips.append(f"A change of the same size costs most in {hp} ({t(hi * 3.5)} for a "
+                    f"Medium one) and least in {lp} ({t(lo * 3.5)}). Short, specific notes "
+                    f"help most in {hp}.")
+    # Always true
+    tips += [
+        "Send is free: it only puts notes on the to-do list. Collect several, then Work once.",
+        "Say one thing per note, and say exactly what you see (\"the jump is too floaty\") "
+        "rather than a whole wish list: Claude explores less.",
+        "Put ideas that can wait in Later, so Work doesn't pick them up with the rest.",
+        "Answer Claude's look-and-feel questions all together at the start, so it doesn't "
+        "stop and re-read the project for each one.",
+    ]
+    return tips
 
 
 def short_tokens(n: float) -> str:

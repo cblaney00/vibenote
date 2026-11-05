@@ -14,9 +14,13 @@ in its own floating desktop window. The sidebar lists every project in `~/projec
 folder with a `.vibe-project`, VibeNote included, so he can keep its own to-do list in it
 — his ask, 2026-10-31), with how many notes are waiting.
 He picks a project, types notes into it, can edit (click), move to another project
-(Move / right-click) or delete (×) them. Projects with the longest lists (all notes ever:
-waiting + sent + done) sit at the top of the sidebar (his ask), and it opens on the top one
-(or the first with notes waiting).
+(Move / right-click) or delete (×) them. **Sidebar order is his** (his ask, 2026-11-04;
+his pick: "your order sticks"): drag a project up or down (`_drag_start/_move/_end`: the row
+is re-packed as it passes each neighbour, saved on the drop; a click without moving picks it;
+the sidebar is not redrawn mid-drag); right-click → "Pin to the top" / "Unpin" (a small ⚑).
+`Store.order`/`pinned` in notes.json, `Store.sidebar_order`: pinned first, then his order;
+projects never placed go at the bottom, longest lists first (the old order). It opens on the
+first with notes waiting, else the top one.
 
 **History** (his ask: "a history of all notes sent and not sent"): every note is kept with a
 status — *waiting* (not sent), *sent* (on the project's to-do list), *done* (gone from the
@@ -101,6 +105,15 @@ used since its refresh, by project and day, pace, projection to the refresh, the
 budget, on/off track, and which to use now (the one whose week ends soonest, if it has room).
 A 5-hour window = median of what was written in the 5 h before each 5-hour hit. The Work
 warning shows the request's guess and what it does to the logged-in account (`_usage_after`).
+
+**Tips for lighter tokens** (his ask, 2026-11-04; his pick: at the bottom of the usage
+page, plus "Tips ›" by "Claude usage ›" which opens it scrolled down). `sender.token_tips`:
+learned ones where his chats say enough (batch of 3+ vs one item per-item cost; chats past
+`LONG_CHAT` this week; his 5-hour limit hits and when; the busy-hours factor; costliest vs
+cheapest project per Medium change), then general ones (Send is free, one thing per note,
+Later, questions up front). **`save_if_better`**: a collection that found no chats never
+overwrites a saved one that had some — a run that couldn't see `/root/.claude` (as him, or
+sandboxed) wiped usage.json on 2026-11-04.
 
 **Later box** (his ask, 2026-11-02: "pin it in a box for getting it done later so it doesnt
 clutter up the rest of the jobs that can be staged and done immidiately"). His picks: above

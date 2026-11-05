@@ -202,6 +202,19 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(len(s.get("x", "sent")), 1)
         self.assertEqual(s.get("x", "sent")[0]["worked"], "2026-11-04")
 
+    def test_sidebar_order_and_pins(self):
+        s = Store(self.path)
+        s.add("big", "a")
+        s.add("big", "b")
+        slugs = ["small", "big", "mid"]
+        self.assertEqual(s.sidebar_order(slugs), ["big", "mid", "small"])  # longest first
+        s.set_order(["small", "big", "mid"])
+        s.toggle_pin("mid", s.sidebar_order(slugs))
+        self.assertEqual(s.sidebar_order(slugs + ["new"]), ["mid", "small", "big", "new"])
+        s.toggle_pin("mid", s.sidebar_order(slugs))
+        self.assertEqual(Store(self.path).sidebar_order(slugs), ["mid", "small", "big"])
+        self.assertEqual(Store(self.path).pinned, [])
+
 
 if __name__ == "__main__":
     unittest.main()

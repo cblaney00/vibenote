@@ -8,6 +8,9 @@ when one is finished, tick it and move it to **Done**.
 
 ## Done
 
+- [x] make it so i can drag around the order of my projects somewhat smoothly and pin ones through a right click option
+- [x] add the ability to look through tips on making token usage lighter that vibenote has picked up over time
+- [x] get the submission grappling game set up with its own vibenote to do list
 - [x] separate between notes that i have checked and completed as far as i am going to from the notes that i havent quite finished working on, ones that are up for review by lando should show themselves as such and not include themselves in the "work all" button because they have already been worked
 - [x] if there is a task that needs to be done later then pin it in a box for getting it done later so it doesnt clutter up the rest of the jobs that can be staged and done immidiately
 - [x] testing the fix

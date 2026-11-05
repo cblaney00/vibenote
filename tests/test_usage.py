@@ -58,6 +58,29 @@ class UsageTest(unittest.TestCase):
 
 
 
+class TipsTest(unittest.TestCase):
+    def test_tips_from_his_chats_and_general_ones(self):
+        usage = {"batches": [{"items": ["a"], "tokens": 20000}] * 3
+                 + [{"items": ["a", "b", "c", "d"], "tokens": 20000}] * 3,
+                 "chats": {"x": {"project": "r62d", "context": 900_000}},
+                 "hits": [{"type": "five_hour", "at": "2026-11-03T01:00:00Z"}]}
+        tips = sender.token_tips(usage, sender.TokenGuess(usage), lambda s: s.upper())
+        self.assertIn("several items at once", tips[0])
+        self.assertIn("R62D", tips[1])
+        self.assertIn("5-hour limit 1 times", tips[2])
+        self.assertTrue(any("Send is free" in t for t in tips))
+        self.assertTrue(sender.token_tips(None, sender.TokenGuess(None)))  # nothing learned yet
+
+    def test_an_empty_collection_never_wipes_the_saved_one(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "usage.json"
+            good = {"hours": {"3": [5, 100.0]}}
+            self.assertTrue(sender.save_if_better(good, None, path))
+            self.assertFalse(sender.save_if_better({"hours": {"3": [0, 0.0]}}, good, path))
+            self.assertEqual(sender.load_saved_usage(path), good)
+
+
 class FreshChatTest(unittest.TestCase):
     NOW = datetime(2026, 11, 2, 20, 0, tzinfo=ZoneInfo("UTC"))
 
