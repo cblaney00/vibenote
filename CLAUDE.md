@@ -170,7 +170,8 @@ tokens are Claude's work, not the message.
 happening in the project"): each new note keeps `snap` (`sender.snapshot`, on a side thread):
 the time, git branch, last commit and its message, files changed since, and what the
 project's Claude chat was doing (Glade state file). Shown as a faint line while the mouse is
-over the note (his pick); click it for `SnapshotDetails`. Older notes have none.
+over the note (his pick; since 2026-11-06 in a small box floating just under it, so nothing
+moves); click it for `SnapshotDetails`. Older notes have none.
 
 **Spelling check of the UI**: he asked for it, then said to disregard it (2026-11-02); not done.
 
@@ -278,6 +279,18 @@ by hiding/showing the page (`_redraw`; this also fixes the undrawn patches XWayl
 after a resize) instead of rebuilding it; the 10 s to-do re-read runs on a side thread
 (`_reread_todo`); the mouse wheel glides (`_scroll`). Rebuild ~50 ms, resize steps ~25 ms.
 Don't bring back per-item widgets for long lists or full rebuilds on resize/ticks.
+**Switching and hover** (his ask, 2026-11-06: "a bit laggy when switching between projects
+and also hovering over notes is a bit jumpy"): each project's page is **kept** once built
+(`_pages`: frame, `_page_key` = its notes + Later fold + its token rate) and swapped into
+the canvas when picked; `refresh()` (after a change) rebuilds the current one, others
+rebuild when their key no longer matches. `_build_ahead` builds the other pages out of
+sight after opening and after changes. Switching re-colours two sidebar rows
+(`_mark_picked`) instead of rebuilding the sidebar, and `show()` re-packs only when the view
+changes. Pages are built hidden and wrapped *before* they show: `_room` works out each
+label's width from the layout (Tk can't measure hidden widgets), so notes no longer jump
+as they re-wrap. Back to a project ~10 ms, first visit ~30–80 ms (Tk mapping its windows).
+The snapshot line floats in a small box over the notes below (`_show_snap`), instead of
+pushing them down.
 
 **Quick start** (his ask, 2026-11-01): it took ~9 s to open. Causes, both fixed: each note
 re-wrapped itself on its own `<Configure>` (a chain of re-layouts) — now all notes wrap in

@@ -100,6 +100,7 @@ class VibeNote(tk.Tk):
         self._show_live()
         self.after(10_000, self._reread_todo)
         self.after(1500, self._relearn)
+        self._ahead_job = self.after(700, self._build_ahead)
         self.after(200, self._float)
         self._size = None
         self._redraw_soon = None
@@ -346,10 +347,12 @@ class VibeNote(tk.Tk):
         self.holder = holder
         self.canvas = tk.Canvas(holder, bg=PAPER, highlightthickness=0, yscrollincrement=6)
         self.canvas.pack(side="left", fill="both", expand=True)
-        self.notes_frame = tk.Frame(self.canvas, bg=PAPER)
+        # Each project's page is kept once built, so switching back to it is instant
+        # (2026-11-06: "laggy when switching between projects"); the others' pages share one
+        self._pages = {}  # project -> (frame, what it showed, its notes to wrap)
+        self._snap_for = None  # the note whose snapshot is showing
+        self._other_page = self.notes_frame = self._new_page()
         self._win = self.canvas.create_window(0, 0, window=self.notes_frame, anchor="nw")
-        self.notes_frame.bind("<Configure>", lambda e: self.canvas.configure(
-            scrollregion=self.canvas.bbox("all")))
         self._wrapping, self._wrap_guess, self._rewrap_job = [], {}, None
 
         def canvas_resized(e):
@@ -361,8 +364,22 @@ class VibeNote(tk.Tk):
         self.bind_all("<Button-5>", lambda e: self._scroll(1))
         self.bind_all("<MouseWheel>", lambda e: self._scroll(-1 if e.delta > 0 else 1))
 
+    def _new_page(self):
+        frame = tk.Frame(self.canvas, bg=PAPER)
+        frame.bind("<Configure>", lambda e: frame is self.notes_frame and self.canvas.configure(
+            scrollregion=(0, 0, e.width, e.height)))
+        return frame
+
+    def _page_key(self):
+        """What a project's page shows: if none of it changed, the kept page is still right."""
+        p = self.current
+        return (json.dumps(self.store.all(p.slug), sort_keys=True), self.later_open,
+                # its token numbers: these change only when the estimate for it does
+                self.guess.tokens(1000, datetime.now().astimezone(), p.slug))
+
     def _scroll(self, steps):
         """Smooth scrolling: each turn of the wheel glides 72 px over a few frames."""
+        self._hide_snap()
         x, y = self.winfo_pointerxy()
         if self.side_canvas.winfo_containing(x, y) and str(
                 self.side_canvas.winfo_containing(x, y)).startswith(str(self.side_canvas)):
@@ -402,8 +419,16 @@ class VibeNote(tk.Tk):
     # --- drawing ----------------------------------------------------------
 
     def refresh(self, keep_scroll=False):
+        """After a change: the sidebar and this page are built afresh (and later, out of
+        sight, any other page the change touched)."""
+        if self.current:
+            self._pages.pop(self.current.slug, None)
         self._draw_sidebar()
         self._draw_page(keep_scroll)
+        if getattr(self, "_ahead_job", None):
+            self.after_cancel(self._ahead_job)
+        if hasattr(self, "_ahead_job"):  # not before the window has finished opening
+            self._ahead_job = self.after(700, self._build_ahead)
 
     def _sort(self):
         """His order (his ask, 2026-11-04: drag them, pin some): pinned on top, then where he
@@ -421,6 +446,7 @@ class VibeNote(tk.Tk):
             w.destroy()
         self._sort()
         self._items = []  # (project or None, widget), top to bottom; None: a box's title
+        self._row_of = {}  # project -> its row, so picking one only re-colours two rows
         pinned = [p for p in self.projects if p.slug in self.store.pinned]
         rest = [p for p in self.projects if p.slug not in self.store.pinned]
         self._section("PINNED", top=True)
@@ -444,6 +470,22 @@ class VibeNote(tk.Tk):
             title = title[:-1]
         return title.rstrip() + "…"
 
+    def _mark_picked(self):
+        """Light up the open project's row (and dim the last one) without rebuilding the
+        sidebar: rebuilding it on every switch was a good part of the lag (2026-11-06)."""
+        picked = self.current.slug if self.current and self.view is None else None
+        for slug, row in getattr(self, "_row_of", {}).items():
+            if not row.winfo_exists():
+                continue
+            bg = SIDEBAR_PICKED if slug == picked else SIDEBAR
+            if row.cget("bg") == bg:
+                continue
+            row.configure(bg=bg)
+            for w in row.winfo_children():
+                w.configure(bg=bg)
+                if w.cget("anchor") == "w":  # the name
+                    w.configure(font=self.f_side_picked if slug == picked else self.f_side)
+
     def _section(self, text, top=False):
         head = tk.Label(self.list_box, text=text, font=self.f_section, bg=SIDEBAR,
                         fg=FADED_INK, anchor="w")
@@ -458,6 +500,7 @@ class VibeNote(tk.Tk):
         bg = SIDEBAR_PICKED if picked else SIDEBAR
         row = tk.Frame(self.list_box, bg=bg, cursor="hand2")
         row.pack(fill="x", padx=6)
+        self._row_of[p.slug] = row
         grip = tk.Label(row, text="⠿", font=self.f_glyph, bg=bg, fg=RULE, cursor="fleur")
         grip.pack(side="left", padx=(4, 4))
         pin = tk.Label(row, text="⚑" if is_pinned else "⚐", font=self.f_glyph, bg=bg,
@@ -545,20 +588,23 @@ class VibeNote(tk.Tk):
 
     def show(self, view):
         """Switch the main area: None (the project's notes), "usage", "find", "summary"."""
-        self.view = view
+        same = getattr(self, "_shown", "unset") == view
+        self.view = self._shown = view
         on_notes = view is None
-        self.find_row.pack_forget()
-        self.entry_row.pack_forget()
-        self.bottom.pack_forget()
-        self.holder.pack_forget()
-        if view == "find":
-            self.find_row.pack(fill="x", pady=(0, 10))
-        if on_notes:
-            self.entry_row.pack(fill="x", pady=(0, 10))
-            self.bottom.pack(side="bottom", fill="x", pady=(10, 0))
-        self.holder.pack(fill="both", expand=True)
+        if not same:  # re-packing these each time made the page jump on every switch
+            self.find_row.pack_forget()
+            self.entry_row.pack_forget()
+            self.bottom.pack_forget()
+            self.holder.pack_forget()
+            if view == "find":
+                self.find_row.pack(fill="x", pady=(0, 10))
+            if on_notes:
+                self.entry_row.pack(fill="x", pady=(0, 14))
+                self.bottom.pack(side="bottom", fill="x", pady=(10, 0))
+            self.holder.pack(fill="both", expand=True)
         self.say("")
-        self.refresh()
+        self._mark_picked()
+        self._draw_page()
         if view == "find":
             self.find_entry.focus_set()
             self.find_entry.select_range(0, "end")
@@ -571,10 +617,76 @@ class VibeNote(tk.Tk):
             self.show(None)
 
     def _draw_page(self, keep_scroll=False):
-        self._wrapping = []
-        self._rewrap_soon()
-        for w in self.notes_frame.winfo_children():
-            w.destroy()
+        """Build the page out of sight and show it once its notes are wrapped: drawn in the
+        open, it showed half-built and then the notes jumped as they re-wrapped (2026-11-06)."""
+        slug = self.current.slug if self.current and self.view is None else None
+        key = self._page_key() if slug else None
+        kept = self._pages.get(slug)
+        if kept and kept[1] == key:  # nothing on it changed: show it as it was
+            self._show_page(kept[0])
+            self._wrapping = kept[2]
+            self._rewrap_all()  # in case the window changed width since
+            self._fill_page(keep_scroll, body=False)
+            if not keep_scroll:
+                self.canvas.yview_moveto(0)
+            return
+        frame = kept[0] if kept else self._new_page() if slug else self._other_page
+        self.canvas.itemconfigure(self._win, state="hidden")
+        self._show_page(frame)
+        try:
+            self._fill_page(keep_scroll)
+        finally:
+            if self._rewrap_job:
+                self.after_cancel(self._rewrap_job)
+            self._rewrap_all()
+            self.canvas.itemconfigure(self._win, state="normal")
+            if slug:
+                self._pages[slug] = (frame, key, self._wrapping)
+
+    def _build_ahead(self):
+        """Build the other projects' pages out of sight, one at a time, so even the first
+        switch to one is instant. Waits while he is dragging or Claude is being started."""
+        self._ahead_job = None
+        if getattr(self, "_drag", None) or self.sending is not None or self.view is not None:
+            self._ahead_job = self.after(1000, self._build_ahead)
+            return
+        here, page, wrapping = self.current, self.notes_frame, self._wrapping
+        for p in self.projects:
+            if p is here:
+                continue
+            self.current = p
+            kept = self._pages.get(p.slug)
+            fresh = kept and kept[1] == self._page_key()
+            self.current = here
+            if fresh:
+                continue
+            self.current = p
+            self.notes_frame = kept[0] if kept else self._new_page()
+            try:
+                self._fill_page(keep_scroll=True)  # never scroll the page he is on
+                self._rewrap_all()
+                self._pages[p.slug] = (self.notes_frame, self._page_key(), self._wrapping)
+            finally:
+                self.current, self.notes_frame, self._wrapping = here, page, wrapping
+                # the title, counts and buttons belong to the page he is looking at
+                self._fill_page(keep_scroll=True, body=False)
+            self._ahead_job = self.after(60, self._build_ahead)  # the next after a breath
+            return
+
+    def _show_page(self, frame):
+        self._hide_snap()
+        if frame is not self.notes_frame:
+            self.notes_frame = frame
+            self.canvas.itemconfigure(self._win, window=frame)
+        self.canvas.configure(scrollregion=(0, 0, frame.winfo_reqwidth(),
+                                            frame.winfo_reqheight()))
+
+    def _fill_page(self, keep_scroll=False, body=True):
+        """The page's title and counts, then (body) its notes."""
+        if body:
+            self._wrapping = []
+            for w in self.notes_frame.winfo_children():
+                w.destroy()
         back = f"← Back to {self.current.title}" if self.current else "← Back"
         if self.view:
             self.page_link.set(back)
@@ -608,6 +720,9 @@ class VibeNote(tk.Tk):
             text=f"{len(notes)} waiting · {len(sent)} sent · "
                  + (f"{len(review)} with Lando · " if review else "") + f"{len(done)} done"
                  + (f" · {len(later)} later" if later else ""))
+        if not body:
+            self._update_buttons()
+            return
 
         if notes or sent:
             self._tick_all_row(notes, sent)
@@ -936,13 +1051,9 @@ class VibeNote(tk.Tk):
             w.bind("<Button-3>", lambda e: self.move_menu(note, e))
 
         # The snapshot taken when he wrote it: a faint line, shown while the mouse is over the
-        # note (his pick); click it for everything
-        snap_line = None
-        if note.get("snap"):
-            snap_line = tk.Label(row, text=sender.snapshot_line(note["snap"]),
-                                 font=self.f_small, bg=PAPER, fg=FADED_INK, anchor="w",
-                                 cursor="hand2")
-            snap_line.bind("<Button-1>", lambda e: SnapshotDetails(self, note))
+        # note (his pick); click it for everything. It floats over the page (_show_snap):
+        # pushing the notes below down made hovering jumpy (2026-11-06).
+        snap = sender.snapshot_line(note["snap"]) if note.get("snap") else None
         hiding = []
 
         # "Move", × and the snapshot only show while the mouse is over the note
@@ -953,10 +1064,8 @@ class VibeNote(tk.Tk):
             remove.configure(fg=FADED_INK)
             move.configure(fg=FADED_INK)
             later.configure(fg=FADED_INK)
-            if snap_line is not None and not snap_line.winfo_ismapped():
-                snap_line.configure(wraplength=max(row.winfo_width() - 40, 100),
-                                    justify="left")
-                snap_line.pack(fill="x", padx=(28, 0), pady=(0, 4), after=line)
+            if snap:
+                self._show_snap(row, snap, note, show, hide)
 
         def hide_now():
             hiding.clear()
@@ -965,20 +1074,43 @@ class VibeNote(tk.Tk):
             remove.configure(fg=PAPER)
             move.configure(fg=PAPER)
             later.configure(fg=PAPER)
-            if snap_line is not None:
-                snap_line.pack_forget()
+            if snap and self._snap_for is row:
+                self._hide_snap()
 
         def hide(_):
             # a moment's wait: moving between the parts of a note leaves one and enters
             # another, and the line should not flicker
             hiding.append(self.after(120, hide_now))
 
-        for w in (row, line, dot, text, remove, move, later) + ((snap_line,) if snap_line
-                                                              else ()):
+        for w in (row, line, dot, text, remove, move, later):
             w.bind("<Enter>", show, add="+")
             w.bind("<Leave>", hide, add="+")
         for w in (remove, move, later):
             w.bind("<Enter>", lambda e, w=w: w.configure(fg=ACCENT), add="+")
+
+    def _show_snap(self, row, text, note, show, hide):
+        """The snapshot line in a small box just under the note, over the notes below it."""
+        tip = getattr(self, "_snap_tip", None)
+        if tip is None:
+            tip = self._snap_tip = tk.Label(self.holder, font=self.f_small, bg=FIELD,
+                                            fg=FADED_INK, anchor="w", justify="left", padx=10,
+                                            pady=4, highlightthickness=1,
+                                            highlightbackground=RULE, cursor="hand2")
+        if self._snap_for is row:
+            return
+        self._snap_for = row
+        wide = max(min(row.winfo_width(), self.canvas.winfo_width()) - 28, 120)
+        tip.configure(text=text, wraplength=wide - 24)
+        tip.bind("<Button-1>", lambda e: SnapshotDetails(self, note))
+        tip.bind("<Enter>", show)  # moving onto the box keeps it up
+        tip.bind("<Leave>", hide)
+        tip.place(in_=row, x=28, rely=1.0, y=-2, width=wide)
+        tip.lift()
+
+    def _hide_snap(self):
+        self._snap_for = None
+        if getattr(self, "_snap_tip", None) is not None:
+            self._snap_tip.place_forget()
 
     def _heading(self, text, notes=None, send=False, top=False):
         """A section title; with notes, also the "Send"/"Work" column titles over the ticks.
@@ -1051,13 +1183,41 @@ class VibeNote(tk.Tk):
             self.after_cancel(self._rewrap_job)
         self._rewrap_job = self.after(40, self._rewrap_all)
 
+    def _room(self, w, known):
+        """How wide w will be, worked out from the layout (the canvas's width, then each
+        frame's padding and the sizes its neighbours ask for), so the page can be wrapped
+        before it is ever shown: Tk only measures what is on screen. known: a cache."""
+        if w is self.notes_frame:
+            return self.canvas.winfo_width()
+        if w in known:
+            return known[w]
+        info = w.pack_info()
+        room = self._room(w.master, known) - self._padx(info)
+        if info["side"] in ("left", "right"):
+            for other in w.master.pack_slaves():
+                if other is not w:
+                    o = other.pack_info()
+                    if o["side"] in ("left", "right"):
+                        room -= other.winfo_reqwidth() + self._padx(o)
+        known[w] = room
+        return room
+
+    @staticmethod
+    def _padx(info):
+        pad = info.get("padx", 0)
+        pad = sum(int(p) for p in pad) if isinstance(pad, (tuple, list)) else int(pad) * 2
+        return pad + int(info.get("ipadx", 0)) * 2
+
     def _rewrap_all(self):
         self._rewrap_job = None
-        self.update_idletasks()  # so every note has its real width
+        known = {}
         for label in self._wrapping:
             if not label.winfo_exists():
                 continue
-            width = max(label.winfo_width() - 12, 50)
+            try:
+                width = max(self._room(label, known) - 12, 50)
+            except tk.TclError:  # not packed (yet)
+                continue
             kind = "note" if label.cget("font") == str(self.f_note) else "todo"
             self._wrap_guess[kind] = width
             if abs(width - int(label.cget("wraplength") or 0)) > 3:
@@ -1357,6 +1517,9 @@ class VibeNote(tk.Tk):
         colour = ACCENT if which == "send" else WORK_GREEN
         box.configure(text="☑" if on else "☐", fg=colour if on else FADED_INK)
         self._update_buttons()
+        kept = self._pages.get(self.current.slug)
+        if kept:  # the kept page already shows the new tick
+            self._pages[self.current.slug] = (kept[0], self._page_key(), kept[2])
 
     def _tick_all_row(self, notes, sent):
         """One place to tick everything (his ask, 2026-11-02): all waiting notes for Send,

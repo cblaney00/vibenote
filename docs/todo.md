@@ -8,6 +8,7 @@ when one is finished, tick it and move it to **Done**.
 
 ## Done
 
+- [x] vibenote is a bit laggy when switching between projects and also hovering over notes is a bit jumpy
 - [x] the left project bar in task notes seems cramped and it seems like it could just generally be improved, i want to be able to easily drag AND pin projects as well as order the pins
 - [x] lets just overhaul vibenote, it should also have a live usage bar from claude /usage, figure out how to make that work
 - [x] the "good time for claude" things goes to a bad time when i just use a lot of tokens even if it is a good time i think
