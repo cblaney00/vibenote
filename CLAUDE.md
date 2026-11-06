@@ -154,6 +154,13 @@ ticks, so Work and Tick all skip it; done once lando merges. Matching (`store.sa
 the `*(...)*` notes Claude writes under an item, so a note no longer turns into a new item
 when Claude adds one; `sync` merges old twins left by that.
 
+**Copying notes** (his ask, 2026-11-06: "the notes should be copy/paste-able ... i just
+want to be able to click and drag it"): drag across any note (waiting, sent, Later) to pick
+text, Ctrl+C copies; a click without moving still edits a waiting note. Notes are labels, so
+`_selectable` lays a plain-text copy over the note on the first move (`_sel_box`, same wrap)
+and selects in that; Esc or clicking away clears it. The Done block uses Tk's own selecting.
+Sidebar rows are thin since then (his pick: "thinner rows, same text", `pady=3`).
+
 **Find** (Ctrl+F, his ask): a box over the page; every note in every project (and its
 snapshot) with all the words, lit up; click one to open its project; Esc goes back.
 

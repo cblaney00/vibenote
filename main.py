@@ -513,7 +513,7 @@ class VibeNote(tk.Tk):
         room = self.side_w - 12 - 2 * self.f_glyph.measure("⚑") - 30 - font.measure("88")
         name = tk.Label(row, text=self._fit_name(p.title, font, room), bg=bg, fg=INK,
                         anchor="w", font=font)
-        name.pack(side="left", fill="x", expand=True, pady=9)
+        name.pack(side="left", fill="x", expand=True, pady=3)  # thin rows (his pick, 2026-11-06)
         for w in (row, grip, name, num):
             w.bind("<ButtonPress-1>", lambda e, proj=p, r=row: self._drag_start(e, proj, r))
             w.bind("<B1-Motion>", self._drag_move)
@@ -1043,7 +1043,7 @@ class VibeNote(tk.Tk):
         # Ruled line under each note, like lined paper
         tk.Frame(row, bg=RULE, height=1).pack(fill="x")
 
-        text.bind("<Button-1>", lambda e: self.edit_note(note, line, text))
+        self._selectable(text, lambda: self.edit_note(note, line, text))
         remove.bind("<Button-1>", lambda e: self.delete_note(note))
         move.bind("<Button-1>", lambda e: self.move_menu(note, e))
         later.bind("<Button-1>", lambda e: self.later_note(note))
@@ -1087,6 +1087,100 @@ class VibeNote(tk.Tk):
             w.bind("<Leave>", hide, add="+")
         for w in (remove, move, later):
             w.bind("<Enter>", lambda e, w=w: w.configure(fg=ACCENT), add="+")
+
+    # Picking part of a note to copy (his ask, 2026-11-06: "the notes should be
+    # copy/paste-able ... i just want to be able to click and drag it"). A label can't hold
+    # a selection, so once the mouse moves a plain-text copy of the note goes exactly over
+    # it, wrapped the same, and the drag selects in that; Ctrl+C copies, Esc or clicking
+    # away clears it. A click without moving still does what it did (edit a waiting note).
+    def _selectable(self, label, click=None):
+        label.bind("<ButtonPress-1>", lambda e: self._sel_start(e, label, click))
+        label.bind("<B1-Motion>", self._sel_move)
+        label.bind("<ButtonRelease-1>", self._sel_end)
+
+    def _sel_start(self, event, label, click):
+        old = getattr(self, "_sel", None)
+        if old and old["label"] is not label:
+            self._sel_clear()
+            old = None
+        self._sel = {"label": label, "click": click, "x": event.x_root, "y": event.y_root,
+                     "moved": False, "box": old["box"] if old else None}
+
+    def _sel_box(self, label):
+        pad = int(label.cget("padx")) + int(label.cget("bd"))
+        padv = int(label.cget("pady")) + int(label.cget("bd"))
+        wrap = int(label.cget("wraplength") or 0)
+        box = tk.Text(label, font=label.cget("font"), bg=PAPER, fg=label.cget("fg"),
+                      wrap="word", relief="flat", bd=0, highlightthickness=0, padx=pad,
+                      pady=padv, cursor="xterm", selectbackground=SIDEBAR_PICKED,
+                      selectforeground=INK, inactiveselectbackground=SIDEBAR_PICKED,
+                      insertwidth=0)
+        box.insert("1.0", label.cget("text"))
+        box.configure(state="disabled")
+        box.bindtags((str(box), "all"))
+        wide = min(label.winfo_width(), wrap + 2 * pad + 2) if wrap else label.winfo_width()
+        box.place(x=0, y=0, width=wide, height=label.winfo_height())
+        box.update_idletasks()
+        for seq in ("<Enter>", "<Leave>", "<Button-3>"):  # hover and right-click as before
+            if label.bind(seq):
+                box.bind(seq, label.bind(seq))
+        box.bind("<ButtonPress-1>", lambda e: self._sel_start(e, label, self._sel["click"]))
+        box.bind("<B1-Motion>", self._sel_move)
+        box.bind("<ButtonRelease-1>", self._sel_end)
+        box.bind("<Control-c>", self._sel_copy)
+        box.bind("<Control-C>", self._sel_copy)
+        box.bind("<Escape>", lambda e: self._sel_clear())
+        box.bind("<FocusOut>", lambda e: self._sel_clear())
+        return box
+
+    @staticmethod
+    def _sel_at(box, x_root, y_root):
+        return box.index(f"@{x_root - box.winfo_rootx()},{y_root - box.winfo_rooty()}")
+
+    def _sel_move(self, event):
+        s = getattr(self, "_sel", None)
+        if not s:
+            return
+        if not s["moved"]:
+            if abs(event.x_root - s["x"]) + abs(event.y_root - s["y"]) < 5:
+                return
+            s["moved"] = True
+            if s["box"] is None or not s["box"].winfo_exists():
+                s["box"] = self._sel_box(s["label"])
+            s["from"] = self._sel_at(s["box"], s["x"], s["y"])
+        box = s["box"]
+        a, b = s["from"], self._sel_at(box, event.x_root, event.y_root)
+        if box.compare(b, "<", a):
+            a, b = b, a
+        box.tag_remove("sel", "1.0", "end")
+        box.tag_add("sel", a, b)
+
+    def _sel_end(self, event):
+        s = getattr(self, "_sel", None)
+        if not s:
+            return
+        if not s["moved"]:
+            click = s["click"]
+            self._sel_clear()
+            if click:
+                click()
+        elif s["box"].tag_ranges("sel"):
+            s["box"].focus_set()
+        else:
+            self._sel_clear()
+
+    def _sel_copy(self, _=None):
+        s = getattr(self, "_sel", None)
+        if s and s["box"] is not None and s["box"].tag_ranges("sel"):
+            self.clipboard_clear()
+            self.clipboard_append(s["box"].get("sel.first", "sel.last"))
+            self.say("✓ Copied", ACCENT)
+        return "break"
+
+    def _sel_clear(self):
+        s, self._sel = getattr(self, "_sel", None), None
+        if s and s["box"] is not None and s["box"].winfo_exists():
+            s["box"].destroy()
 
     def _show_snap(self, row, text, note, show, hide):
         """The snapshot line in a small box just under the note, over the notes below it."""
@@ -1280,9 +1374,11 @@ class VibeNote(tk.Tk):
             finish.bind("<Button-1>", lambda e: self.finish_note(note))
             words.append(finish)
         text = tk.Label(line, text=note["text"], font=self.f_todo, bg=PAPER,
-                        fg=FADED_INK if done else INK, anchor="w", justify="left")
+                        fg=FADED_INK if done else INK, anchor="w", justify="left",
+                        cursor="xterm")
         text.pack(side="left", fill="x", expand=True)
         self._wrap(text)
+        self._selectable(text)
         if later is not None:
             for w in (line, text):
                 w.bind("<Button-3>", lambda e: self.move_menu(note, e))
@@ -1324,9 +1420,10 @@ class VibeNote(tk.Tk):
             now.pack(side="right", padx=(8, 0), anchor="n")
             self._size_tag(line, note)
             text = tk.Label(line, text=note["text"], font=self.f_todo, bg=PAPER, fg=FADED_INK,
-                            anchor="w", justify="left")
+                            anchor="w", justify="left", cursor="xterm")
             text.pack(side="left", fill="x", expand=True)
             self._wrap(text)
+            self._selectable(text)
             now.bind("<Button-1>", lambda e, n=note: self.now_note(n))
             remove.bind("<Button-1>", lambda e, n=note: self.delete_note(n))
             for w in (line, text):
@@ -1349,7 +1446,8 @@ class VibeNote(tk.Tk):
         indent = self.f_todo.measure("✓") + 14
         box = tk.Text(self.notes_frame, bg=PAPER, fg=FADED_INK, font=self.f_todo, wrap="word",
                       relief="flat", bd=0, highlightthickness=0, padx=0, pady=0, height=1,
-                      cursor="arrow", spacing3=7)
+                      cursor="xterm", spacing3=7, selectbackground=SIDEBAR_PICKED,
+                      selectforeground=INK, inactiveselectbackground=SIDEBAR_PICKED)
         box.tag_configure("item", lmargin1=2, lmargin2=indent,
                           tabs=(indent,))
         box.tag_configure("tick", foreground=ACCENT)
@@ -1361,7 +1459,12 @@ class VibeNote(tk.Tk):
             box.insert("end", "\n", "item")
         box.delete("end-2c")  # no blank line after the last one
         box.configure(state="disabled")
-        box.bindtags((str(box), "all"))  # no selecting or scrolling of its own
+        # Drag to pick text, Ctrl+C to copy (his ask, 2026-11-06); no scrolling of its own
+        box.bindtags((str(box), "Text", "all"))
+        box.bind("<ButtonPress-1>", lambda e: box.focus_set(), add="+")
+        for seq in ("<Button-4>", "<Button-5>", "<MouseWheel>"):
+            box.bind(seq, lambda e: self._scroll(-1 if e.num == 4 or e.delta > 0 else 1)
+                     or "break")
         box.pack(fill="x", pady=(2, 0))
 
         def fit(e=None):
