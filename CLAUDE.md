@@ -15,9 +15,15 @@ folder with a `.vibe-project`, VibeNote included, so he can keep its own to-do l
 — his ask, 2026-10-31), with how many notes are waiting.
 He picks a project, types notes into it, can edit (click), move to another project
 (Move / right-click) or delete (×) them. **Sidebar order is his** (his ask, 2026-11-04;
-his pick: "your order sticks"): drag a project up or down (`_drag_start/_move/_end`: the row
-is re-packed as it passes each neighbour, saved on the drop; a click without moving picks it;
-the sidebar is not redrawn mid-drag); right-click → "Pin to the top" / "Unpin" (a small ⚑).
+his pick: "your order sticks"). Since 2026-11-06 (his ask: "cramped ... easily drag AND pin
+projects as well as order the pins"; his pick: a Pinned box on top) it has a **PINNED** box
+and a **PROJECTS** box; each row has a grip (⠿) and a flag to click (⚑ pinned, ⚐ not;
+right-click still pins). Drag a row anywhere (`_drag_start/_move/_end` over `self._items`,
+box titles included: the row is re-packed as it passes each neighbour, saved on the drop with
+`Store.set_order(order, pinned)`); dropping it in the other box pins/unpins it. A click
+without moving picks it; the sidebar is not redrawn mid-drag. The list scrolls
+(`side_canvas`) when it doesn't fit, so the sign and usage bars always show; long names end
+in "…" (`_fit_name`).
 `Store.order`/`pinned` in notes.json, `Store.sidebar_order`: pinned first, then his order;
 projects never placed go at the bottom, longest lists first (the old order). It opens on the
 first with notes waiting, else the top one.
@@ -68,6 +74,16 @@ heading is kept on the note (`group`). Pressing Organize also re-learns the usag
 (`_relearn(again=False)`), so the token guesses, sign and usage numbers are right for this
 time of day and week (his ask, 2026-11-02).
 
+**Live usage bars** (his ask, 2026-11-06: "a live usage bar from claude /usage"; his pick:
+sidebar bottom). Two bars, "5 hours" and "This week", each with its % and reset time: the
+numbers Claude's `/usage` shows, from `api.anthropic.com/api/oauth/usage` with the login in
+`/root/.claude/.credentials.json`, so **only root can ask**. `vibenote --live-usage`
+(`sender.save_live_usage`, at most once a minute) saves them to
+`~/.local/share/vibenote/live.json`; the **Glade's** Claude hook (`glade/claude_state.py`,
+`refresh_vibenote_usage`, on Stop/PostToolUse) runs it, and `--collect-usage` does too.
+VibeNote re-reads the file every 30 s (`_show_live`); a limit past its reset shows 0%. Only
+the logged-in account is known (named from accounts.json by email).
+
 **Token estimate and the "good time?" sign** (his asks, 2026-11-01: "a token estimator that
 learns how many tokens it uses based on time of day", and "a sign ... if it is a good time to
 claude or not from a token perspective"; his pick: on each tag + a total). In `sender.py`:
@@ -83,12 +99,13 @@ factor: during Claude's busy hours (`is_busy`: weekday 5–11am Pacific = 8am–
 same work uses up more of his limit, so estimates count more — learned from his 5-hour limit
 hits (median quiet fill ÷ median busy fill, by each window's middle, ≥2 of each, 1.0–2.0),
 `BUSY_GUESS` 1.25 until then. (It used to follow his own reply lengths by hour, which made busy
-hours *cheaper*; he caught that, 2026-11-02 — don't bring it back.) Tags read "Big · ~29k"; the Work button
+hours *cheaper*; he caught that, 2026-11-02 — don't bring it back.) Tags read "~29k", coloured by size (the word went, 2026-11-06); the Work button
 shows the total for the ticked items, and each section and group heading its own sum
 (his ask, 2026-11-01). The sign (sidebar bottom, `good_time`): *Not a great
 time* on weekday 5–11am Pacific (Anthropic made 5-hour limits run out faster then in March
-2026; later reports say not for Claude Code, so it says "may") (it says how much more estimates count) or when the last 5 hours used
-over 70% of his busiest 5 hours ever (only if the summary is <20 min old); else *Good*.
+2026; later reports say not for Claude Code, so it says "may") (it says how much more estimates count); else *Good*. Time of day only: it used to turn
+bad after he had used a lot himself, which read as a bad time (his catch, 2026-11-06); the
+usage bars show that now. Don't bring it back.
 
 **Claude usage page** (his ask, 2026-11-02; his pick: click the sign → "Claude usage ›").
 Two accounts, each with a week that refreshes at a set time — his words: **Account 1 refreshes
@@ -177,6 +194,13 @@ Look (his calls, in order):
   and upright, not italic (section headings 11 pt); dates on sent items show only while the
   mouse is over them; the sidebar sign is one short line ("Busy hours: estimates +25% until
   2pm."). He kept the token numbers on each note and on the group headings.
+- 2026-11-06: "lets just overhaul vibenote". His picks: the Pinned-box sidebar, usage bars at
+  the sidebar bottom, a roomier note page (bigger gaps), **bigger text everywhere** (a step
+  up: notes 15, sidebar 15, small 13), fewer small words (size tags are just "~29k"), and
+  "make the app window bigger as well but if i make it smaller then it should still work and
+  resize everything smoothly": opens 1120×780 (`WIDE`/`TALL`), smallest 760×520; the
+  sidebar is ~27% of the width (220–310, `_fit_sidebar`, on the settled resize) and the page
+  margins narrow when the window does.
 Ask him before changing the look.
 
 **Ticks** (his ask): each waiting note has a **Send** tick (terracotta, new notes start ticked)

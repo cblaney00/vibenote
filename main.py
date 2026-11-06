@@ -33,6 +33,8 @@ FIELD = "#2a231d"           # text boxes
 WORK_GREEN = "#8ea36b"      # the Work tick, so it never looks like the Send tick
 
 SERIF = "Georgia"
+GLYPHS = "DejaVu Sans"      # has the grip (⠿) and flags (⚑ ⚐) Georgia lacks
+WIDE, TALL = 1120, 780      # opening size (his ask, 2026-11-06: "make the app window bigger")
 
 
 def nice_date(iso):
@@ -52,8 +54,8 @@ class VibeNote(tk.Tk):
     def __init__(self):
         super().__init__(className="vibenote")
         self.title("VibeNote")
-        self.geometry("920x640")
-        self.minsize(520, 380)
+        self.geometry(f"{WIDE}x{TALL}")
+        self.minsize(760, 520)
         self.configure(bg=PAPER)
 
         self.store = Store()
@@ -63,22 +65,25 @@ class VibeNote(tk.Tk):
         self.current = (waiting or self.projects)[0] if self.projects else None
         self.sending = None  # the message from a send running in the background
 
-        self.f_brand = tkfont.Font(family=SERIF, size=20, weight="bold", slant="italic")
+        self.f_brand = tkfont.Font(family=SERIF, size=22, weight="bold", slant="italic")
         # Small text a bit bigger and upright (his pick, 2026-11-02: "less cluttery small text")
-        self.f_head = tkfont.Font(family=SERIF, size=11)
-        self.f_side = tkfont.Font(family=SERIF, size=13)
-        self.f_side_picked = tkfont.Font(family=SERIF, size=13, weight="bold")
-        self.f_title = tkfont.Font(family=SERIF, size=24, weight="bold")
-        self.f_note = tkfont.Font(family=SERIF, size=14)
-        self.f_todo = tkfont.Font(family=SERIF, size=12)
-        self.f_box = tkfont.Font(family="DejaVu Sans", size=15)
+        self.f_head = tkfont.Font(family=SERIF, size=12)
+        self.f_side = tkfont.Font(family=SERIF, size=15)
+        self.f_side_picked = tkfont.Font(family=SERIF, size=15, weight="bold")
+        self.f_title = tkfont.Font(family=SERIF, size=26, weight="bold")
+        self.f_note = tkfont.Font(family=SERIF, size=15)
+        self.f_todo = tkfont.Font(family=SERIF, size=14)
+        self.f_box = tkfont.Font(family=GLYPHS, size=16)
         # Tick columns sized from the text itself: his screen draws text ~1/3 bigger than
         # a plain one, and fixed pixel sizes cut the ticks off there
         self.tick_w = max(self.f_head.measure("Work"), self.f_box.measure("☑")) + 20
         self.tick_h = self.f_box.metrics("linespace") + 4
         self.head_h = self.f_head.metrics("linespace") + 4
-        self.f_small = tkfont.Font(family=SERIF, size=12)
-        self.f_button = tkfont.Font(family=SERIF, size=13, weight="bold")
+        self.f_small = tkfont.Font(family=SERIF, size=13)
+        self.f_button = tkfont.Font(family=SERIF, size=14, weight="bold")
+        self.f_section = tkfont.Font(family=SERIF, size=11, weight="bold")
+        self.f_glyph = tkfont.Font(family=GLYPHS, size=13)
+        self.side_w = 280
 
         # The glowing notepad shows while the page is built (his pick, 2026-11-01)
         loading = Loading(self)
@@ -92,6 +97,7 @@ class VibeNote(tk.Tk):
         self.current = (waiting or self.projects or [None])[0]
         self.refresh()
         self._show_sign()
+        self._show_live()
         self.after(10_000, self._reread_todo)
         self.after(1500, self._relearn)
         self.after(200, self._float)
@@ -118,6 +124,7 @@ class VibeNote(tk.Tk):
         """Hide and show the page in one go: everything on it is drawn afresh, without the
         cost of building it all again."""
         self._redraw_soon = None
+        self._fit_sidebar()
         self.canvas.itemconfigure(self._win, state="hidden")
         self.update_idletasks()
         self.canvas.itemconfigure(self._win, state="normal")
@@ -129,7 +136,7 @@ class VibeNote(tk.Tk):
         if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
             return
         me = f"pid:{os.getpid()}"
-        for args in (["setfloating", me], ["resizewindowpixel", f"exact 920 640,{me}"],
+        for args in (["setfloating", me], ["resizewindowpixel", f"exact {WIDE} {TALL},{me}"],
                      ["centerwindow"]):
             try:
                 subprocess.run(["hyprctl", "dispatch", *args], capture_output=True, timeout=3)
@@ -139,26 +146,30 @@ class VibeNote(tk.Tk):
     # --- layout -----------------------------------------------------------
 
     def _build_sidebar(self):
-        side = tk.Frame(self, bg=SIDEBAR, width=220)
+        side = tk.Frame(self, bg=SIDEBAR, width=self.side_w)
         side.pack(side="left", fill="y")
         side.pack_propagate(False)
+        self.side = side
+        self.margin_line = self.body = None  # made with the page, just after
 
         tk.Label(side, text="VibeNote", font=self.f_brand, bg=SIDEBAR, fg=ACCENT,
-                 anchor="w").pack(fill="x", padx=18, pady=(18, 4))
-        tk.Label(side, text="Your projects", font=self.f_head, bg=SIDEBAR, fg=FADED_INK,
-                 anchor="w").pack(fill="x", padx=18, pady=(0, 10))
+                 anchor="w").pack(fill="x", padx=20, pady=(20, 14))
 
-        # "Is now a good time for Claude?" (his ask, 2026-11-01), at the bottom
+        # "Is now a good time for Claude?" (his ask, 2026-11-01) and the live usage bars
+        # (his ask, 2026-11-06: "a live usage bar from claude /usage"), at the bottom
         sign = tk.Frame(side, bg=SIDEBAR)
-        sign.pack(side="bottom", fill="x", padx=18, pady=(0, 18))
-        self.sign_title = tk.Label(sign, font=self.f_side_picked, bg=SIDEBAR, anchor="w",
-                                   justify="left", wraplength=184)
+        sign.pack(side="bottom", fill="x", padx=20, pady=(0, 16))
+        tk.Frame(side, bg=RULE, height=1).pack(side="bottom", fill="x", padx=20, pady=(0, 16))
+        self.sign_title = tk.Label(sign, font=self.f_side, bg=SIDEBAR, anchor="w",
+                                   justify="left")
         self.sign_title.pack(fill="x")
         self.sign_why = tk.Label(sign, font=self.f_small, bg=SIDEBAR, fg=FADED_INK, anchor="w",
-                                 justify="left", wraplength=184)
+                                 justify="left")
         self.sign_why.pack(fill="x")
+        self.live_box = tk.Frame(sign, bg=SIDEBAR)
+        self.live_box.pack(fill="x", pady=(10, 0))
         links = tk.Frame(sign, bg=SIDEBAR)
-        links.pack(anchor="w", pady=(8, 0))
+        links.pack(anchor="w", pady=(2, 0))
         self.sign_more = SmallButton(links, self.f_small, lambda: self.show("usage"), ACCENT,
                                      "Claude usage ›")
         self.sign_more.pack(side="left")
@@ -168,23 +179,117 @@ class VibeNote(tk.Tk):
             w.configure(cursor="hand2")
             w.bind("<Button-1>", lambda e: self.show("usage"))
 
-        self.list_box = tk.Frame(side, bg=SIDEBAR)
-        self.list_box.pack(fill="both", expand=True)
+        # The projects, in a list that scrolls when they don't all fit, so the sign and the
+        # usage bars below always show
+        self.side_canvas = tk.Canvas(side, bg=SIDEBAR, highlightthickness=0,
+                                     yscrollincrement=6)
+        self.side_canvas.pack(fill="both", expand=True, pady=(0, 8))
+        self.list_box = tk.Frame(self.side_canvas, bg=SIDEBAR)
+        self._side_win = self.side_canvas.create_window(0, 0, window=self.list_box, anchor="nw")
+        self.list_box.bind("<Configure>", lambda e: self.side_canvas.configure(
+            scrollregion=self.side_canvas.bbox("all")))
+        self.side_canvas.bind("<Configure>", lambda e: self.side_canvas.itemconfigure(
+            self._side_win, width=e.width))
+        self._fit_sidebar(force=True)
+
+    def _fit_sidebar(self, force=False):
+        """The sidebar takes about a quarter of the window, between 220 and 310 px, and the
+        page's margins narrow too, so a small window still has room for the notes."""
+        wide = self.winfo_width()
+        width = max(220, min(310, int(wide * 0.27))) if not force else self.side_w
+        roomy = force or wide - width > 720
+        if self.body is not None:
+            self.margin_line.pack_configure(padx=(36 if roomy else 14, 0))
+            self.body.pack_configure(padx=(32, 44) if roomy else (18, 18))
+        if width == self.side_w and not force:
+            return
+        self.side_w = width
+        self.side.configure(width=width)
+        for label in (self.sign_title, self.sign_why):
+            label.configure(wraplength=width - 40)
+        self.sign_more.set("Claude usage ›" if width >= 250 else "Usage ›")  # Tips still fits
+        if not force:
+            self._show_live()
+            self._draw_sidebar()
+
+    def _show_live(self):
+        """The two bars Claude's /usage shows: this 5-hour window and this week. Re-read
+        every 30 s (the Glade's Claude hook refreshes the file after Claude's replies)."""
+        if getattr(self, "_live_job", None):
+            self.after_cancel(self._live_job)
+        self._live_job = self.after(30_000, self._show_live)
+        for w in self.live_box.winfo_children():
+            w.destroy()
+        live = sender.load_live_usage()
+        if not live:
+            tk.Label(self.live_box, text="Live usage shows after Claude's next reply.",
+                     font=self.f_small, bg=SIDEBAR, fg=FADED_INK, anchor="w", justify="left",
+                     wraplength=self.side_w - 40).pack(fill="x")
+            return
+        name = next((a["name"] for a in sender.load_accounts()
+                     if a.get("email") and a["email"] == live.get("email")), "")
+        try:
+            age = (datetime.now().astimezone()
+                   - datetime.fromisoformat(live["at"])).total_seconds() / 60
+        except (KeyError, ValueError):
+            age = 0
+        old = (f" · {round(age / 60)}h ago" if age >= 90 else f" · {round(age)} min ago"
+               if age >= 15 else "")
+        tk.Label(self.live_box, text=(name or "Claude") + " now" + old, font=self.f_section,
+                 bg=SIDEBAR, fg=FADED_INK, anchor="w").pack(fill="x", pady=(0, 4))
+        for key, title, when in (("five_hour", "5 hours", "%-I:%M%p"),
+                                 ("week", "This week", "%a %-I%p")):
+            part = live.get(key)
+            if not part:
+                continue
+            pct = max(0.0, min(100.0, part["percent"]))
+            try:
+                resets = datetime.fromisoformat(part["resets"]).astimezone().strftime(when)
+                resets = "resets " + resets.replace("AM", "am").replace("PM", "pm")
+            except (TypeError, ValueError, KeyError):
+                resets = "starts fresh"
+            top = tk.Frame(self.live_box, bg=SIDEBAR)
+            top.pack(fill="x")
+            tk.Label(top, text=f"{round(pct)}%", font=self.f_small, bg=SIDEBAR,
+                     fg=self._live_colour(pct)).pack(side="right")
+            tk.Label(top, text=title, font=self.f_small, bg=SIDEBAR, fg=INK).pack(side="left")
+            # the reset time beside the title when there is room, else under the bar
+            beside = (self.f_small.measure(f"{title} · {resets} 100%") <= self.side_w - 40)
+            if beside:
+                tk.Label(top, text=" · " + resets, font=self.f_small, bg=SIDEBAR,
+                         fg=FADED_INK).pack(side="left")
+            bar_w, bar_h = self.side_w - 40, 8
+            bar = tk.Canvas(self.live_box, width=bar_w, height=bar_h, bg=SIDEBAR,
+                            highlightthickness=0)
+            bar.pack(fill="x", pady=(3, 9 if beside else 1))
+            bar.create_rectangle(0, 0, bar_w, bar_h, fill=RULE, width=0)
+            if pct:
+                bar.create_rectangle(0, 0, max(3, bar_w * pct / 100), bar_h,
+                                     fill=self._live_colour(pct), width=0)
+            if not beside:
+                tk.Label(self.live_box, text=resets, font=self.f_small, bg=SIDEBAR,
+                         fg=FADED_INK, anchor="w").pack(fill="x", pady=(0, 6))
+
+    @staticmethod
+    def _live_colour(pct):
+        return WORK_GREEN if pct < 50 else INK if pct < 80 else ACCENT
 
     def _build_page(self):
         page = tk.Frame(self, bg=PAPER)
         page.pack(side="left", fill="both", expand=True)
 
         # Red margin line down the left of the page, like notebook paper
-        tk.Frame(page, bg=MARGIN, width=2).pack(side="left", fill="y", padx=(36, 0))
+        self.margin_line = tk.Frame(page, bg=MARGIN, width=2)
+        self.margin_line.pack(side="left", fill="y", padx=(36, 0))
 
         body = tk.Frame(page, bg=PAPER)
-        body.pack(side="left", fill="both", expand=True, padx=(24, 36), pady=(22, 16))
+        self.body = body
+        body.pack(side="left", fill="both", expand=True, padx=(32, 44), pady=(26, 18))
 
         self.title_label = tk.Label(body, font=self.f_title, bg=PAPER, fg=INK, anchor="w")
         self.title_label.pack(fill="x")
         count_row = tk.Frame(body, bg=PAPER)
-        count_row.pack(fill="x", pady=(0, 14))
+        count_row.pack(fill="x", pady=(2, 18))
         self.count_label = tk.Label(count_row, font=self.f_small, bg=PAPER, fg=FADED_INK,
                                     anchor="w")
         self.count_label.pack(side="left")
@@ -207,11 +312,11 @@ class VibeNote(tk.Tk):
 
         # Box for typing a new note
         entry_row = tk.Frame(body, bg=FIELD, highlightthickness=1, highlightbackground=RULE)
-        entry_row.pack(fill="x", pady=(0, 10))
+        entry_row.pack(fill="x", pady=(0, 14))
         self.entry_row = entry_row
         self.entry = tk.Entry(entry_row, font=self.f_note, bg=FIELD, fg=INK,
                               insertbackground=INK, relief="flat", highlightthickness=0)
-        self.entry.pack(fill="x", ipady=8, padx=10)
+        self.entry.pack(fill="x", ipady=10, padx=12)
         self.entry.bind("<Return>", lambda e: self.add_note())
         self._placeholder = "Write a note and press Enter…"
         self._show_placeholder()
@@ -258,6 +363,12 @@ class VibeNote(tk.Tk):
 
     def _scroll(self, steps):
         """Smooth scrolling: each turn of the wheel glides 72 px over a few frames."""
+        x, y = self.winfo_pointerxy()
+        if self.side_canvas.winfo_containing(x, y) and str(
+                self.side_canvas.winfo_containing(x, y)).startswith(str(self.side_canvas)):
+            if self.list_box.winfo_height() > self.side_canvas.winfo_height():
+                self.side_canvas.yview_scroll(steps * 8, "units")
+            return
         if self.notes_frame.winfo_height() <= self.canvas.winfo_height():
             return
         self._glide = getattr(self, "_glide", 0) + steps * 12  # in 6 px units
@@ -301,37 +412,82 @@ class VibeNote(tk.Tk):
         self.projects.sort(key=lambda p: order.index(p.slug))
 
     def _draw_sidebar(self):
+        """His sidebar (his pick, 2026-11-06): a Pinned box on top, then the rest. Each row
+        has a grip to drag it and a flag to click: ⚑ pinned, ⚐ not. Dragging a project into
+        or out of the Pinned box pins or unpins it; dragging inside a box orders it."""
         if getattr(self, "_drag", None):
             return  # not while he is dragging a project; the drop draws it again
         for w in self.list_box.winfo_children():
             w.destroy()
         self._sort()
-        self._rows = []
-        for p in self.projects:
-            picked = p is self.current and self.view is None
-            waiting = len(self.store.get(p.slug))
-            bg = SIDEBAR_PICKED if picked else SIDEBAR
-            row = tk.Frame(self.list_box, bg=bg, cursor="hand2")
-            row.pack(fill="x")
-            name = tk.Label(row, text=p.title, bg=bg, fg=INK, anchor="w",
-                            font=self.f_side_picked if picked else self.f_side)
-            name.pack(side="left", fill="x", expand=True, padx=(18, 4), pady=7)
-            num = tk.Label(row, text=str(waiting) if waiting else "", bg=bg, fg=ACCENT,
-                           font=self.f_side_picked)
-            num.pack(side="right", padx=(0, 14))
-            if p.slug in self.store.pinned:
-                tk.Label(row, text="⚑", bg=bg, fg=FADED_INK, font=self.f_small).pack(
-                    side="right", padx=(0, 6))
-            for w in (row, *row.winfo_children()):
-                w.bind("<ButtonPress-1>", lambda e, proj=p, r=row: self._drag_start(e, proj, r))
-                w.bind("<B1-Motion>", self._drag_move)
-                w.bind("<ButtonRelease-1>", self._drag_end)
-                w.bind("<Button-3>", lambda e, proj=p: self._project_menu(proj, e))
-            self._rows.append((p, row))
+        self._items = []  # (project or None, widget), top to bottom; None: a box's title
+        pinned = [p for p in self.projects if p.slug in self.store.pinned]
+        rest = [p for p in self.projects if p.slug not in self.store.pinned]
+        self._section("PINNED", top=True)
+        if not pinned:
+            hint = tk.Label(self.list_box, text="Click ⚐ or drag a project here",
+                            font=self.f_small, bg=SIDEBAR, fg=FADED_INK, anchor="w")
+            hint.pack(fill="x", padx=20, pady=(0, 4))
+            self._items.append((None, hint))
+        for p in pinned:
+            self._project_row(p)
+        self._projects_head = self._section("PROJECTS")
+        for p in rest:
+            self._project_row(p)
 
-    # Dragging a project up or down the sidebar (his ask, 2026-11-04). The row follows the
-    # mouse by being packed into its new place as it passes each neighbour; only a drop
-    # saves. A plain click (no real move) still picks the project.
+    @staticmethod
+    def _fit_name(title, font, room):
+        """A long name ends in … rather than being cut off at the sidebar's edge."""
+        if font.measure(title) <= room:
+            return title
+        while title and font.measure(title + "…") > room:
+            title = title[:-1]
+        return title.rstrip() + "…"
+
+    def _section(self, text, top=False):
+        head = tk.Label(self.list_box, text=text, font=self.f_section, bg=SIDEBAR,
+                        fg=FADED_INK, anchor="w")
+        head.pack(fill="x", padx=20, pady=(0 if top else 16, 4))
+        self._items.append((None, head))
+        return head
+
+    def _project_row(self, p):
+        picked = p is self.current and self.view is None
+        waiting = len(self.store.get(p.slug))
+        is_pinned = p.slug in self.store.pinned
+        bg = SIDEBAR_PICKED if picked else SIDEBAR
+        row = tk.Frame(self.list_box, bg=bg, cursor="hand2")
+        row.pack(fill="x", padx=6)
+        grip = tk.Label(row, text="⠿", font=self.f_glyph, bg=bg, fg=RULE, cursor="fleur")
+        grip.pack(side="left", padx=(4, 4))
+        pin = tk.Label(row, text="⚑" if is_pinned else "⚐", font=self.f_glyph, bg=bg,
+                       fg=ACCENT if is_pinned else RULE, cursor="hand2")
+        pin.pack(side="right", padx=(2, 8))
+        num = tk.Label(row, text=str(waiting) if waiting else "", bg=bg, fg=ACCENT,
+                       font=self.f_side_picked)
+        num.pack(side="right", padx=(4, 4))
+        font = self.f_side_picked if picked else self.f_side
+        room = self.side_w - 12 - 2 * self.f_glyph.measure("⚑") - 30 - font.measure("88")
+        name = tk.Label(row, text=self._fit_name(p.title, font, room), bg=bg, fg=INK,
+                        anchor="w", font=font)
+        name.pack(side="left", fill="x", expand=True, pady=9)
+        for w in (row, grip, name, num):
+            w.bind("<ButtonPress-1>", lambda e, proj=p, r=row: self._drag_start(e, proj, r))
+            w.bind("<B1-Motion>", self._drag_move)
+            w.bind("<ButtonRelease-1>", self._drag_end)
+        for w in (row, grip, name, num, pin):
+            w.bind("<Button-3>", lambda e, proj=p: self._project_menu(proj, e))
+            # under the mouse the grip and an empty flag light up, so he can see they work
+            w.bind("<Enter>", lambda e, g=grip, f=pin, on=is_pinned: (
+                g.configure(fg=FADED_INK), on or f.configure(fg=FADED_INK)), add="+")
+            w.bind("<Leave>", lambda e, g=grip, f=pin, on=is_pinned: (
+                g.configure(fg=RULE), on or f.configure(fg=RULE)), add="+")
+        pin.bind("<Button-1>", lambda e, proj=p: self._pin(proj))
+        self._items.append((p, row))
+
+    # Dragging a project (his ask, 2026-11-04; into and out of Pinned, 2026-11-06). The row
+    # follows the mouse by being packed into its new place as it passes each neighbour; only
+    # a drop saves. A plain click (no real move) still picks the project.
     def _drag_start(self, event, project, row):
         self._drag = {"p": project, "row": row, "y": event.y_root, "moved": False}
 
@@ -346,26 +502,20 @@ class VibeNote(tk.Tk):
             self.list_box.configure(cursor="fleur")
             for w in (d["row"], *d["row"].winfo_children()):
                 w.configure(bg=RULE)
-        pinned = d["p"].slug in self.store.pinned
-        group = [(p, r) for p, r in self._rows if (p.slug in self.store.pinned) == pinned]
         y = event.y_root - self.list_box.winfo_rooty()
-        target = len(group) - 1
-        for i, (p, r) in enumerate(group):
-            if y < r.winfo_y() + r.winfo_height() / 2:
-                target = i
-                break
-        now = next(i for i, (p, r) in enumerate(group) if r is d["row"])
-        if target == now:
+        others = [(p, w) for p, w in self._items if w is not d["row"]]
+        # the first thing below the mouse; never above the Pinned title
+        at = next((i for i, (p, w) in enumerate(others)
+                   if y < w.winfo_y() + w.winfo_height() / 2), len(others))
+        at = max(at, 1)
+        now = self._items.index((d["p"], d["row"]))
+        if at == now:
             return
-        item = self._rows.pop(self._rows.index((d["p"], d["row"])))
-        if target < now:
-            before = group[target][1]
-            self._rows.insert(self._rows.index(group[target]), item)
-            d["row"].pack_configure(before=before)
+        self._items = others[:at] + [(d["p"], d["row"])] + others[at:]
+        if at < len(others):
+            d["row"].pack_configure(before=others[at][1])
         else:
-            after = group[target][1]
-            self._rows.insert(self._rows.index(group[target]) + 1, item)
-            d["row"].pack_configure(after=after)
+            d["row"].pack_configure(after=others[-1][1])
 
     def _drag_end(self, event):
         d, self._drag = getattr(self, "_drag", None), None
@@ -375,7 +525,10 @@ class VibeNote(tk.Tk):
             self.pick(d["p"])
             return
         self.list_box.configure(cursor="")
-        self.store.set_order([p.slug for p, _ in self._rows])
+        cut = next(i for i, (p, w) in enumerate(self._items) if w is self._projects_head)
+        order = [p.slug for p, w in self._items if p]
+        pinned = [p.slug for p, w in self._items[:cut] if p]
+        self.store.set_order(order, pinned)
         self.refresh(keep_scroll=True)  # also catches up on anything held back while dragging
 
     def _project_menu(self, project, event):
@@ -752,7 +905,7 @@ class VibeNote(tk.Tk):
         row = tk.Frame(self.notes_frame, bg=PAPER)
         row.pack(fill="x")
         line = tk.Frame(row, bg=PAPER)
-        line.pack(fill="x", pady=5)
+        line.pack(fill="x", pady=8)
 
         dot = tk.Label(line, text="•", font=self.f_note, bg=PAPER, fg=ACCENT)
         dot.pack(side="left", padx=(2, 10), anchor="n")
@@ -831,7 +984,7 @@ class VibeNote(tk.Tk):
         """A section title; with notes, also the "Send"/"Work" column titles over the ticks.
         Clicking a column title ticks the whole column (or unticks it, if all are ticked)."""
         row = tk.Frame(self.notes_frame, bg=PAPER)
-        row.pack(fill="x", pady=(6 if top else 26, 4))
+        row.pack(fill="x", pady=(8 if top else 38, 6))
         if notes:
             for which, colour, shown in (("work", WORK_GREEN, True), ("send", ACCENT, send)):
                 cell = tk.Frame(row, bg=PAPER, width=self.tick_w, height=self.head_h)
@@ -863,7 +1016,7 @@ class VibeNote(tk.Tk):
         if group and group != current:
             text = f"{group} · {sender.short_tokens(totals[group])}"
             tk.Label(self.notes_frame, text=text, font=self.f_small, bg=PAPER, fg=ACCENT,
-                     anchor="w").pack(fill="x", padx=(20, 0), pady=(10, 0))
+                     anchor="w").pack(fill="x", padx=(20, 0), pady=(16, 2))
         return group
 
     def _tick_cell(self, parent, note, which):
@@ -917,14 +1070,15 @@ class VibeNote(tk.Tk):
         label = size_label(note["size"])
         colour = {"Small": WORK_GREEN, "Medium": FADED_INK, "Big": ACCENT}[label]
         tokens = sender.short_tokens(self._tokens(note))
-        tk.Label(parent, text=f"{label} · {tokens}", font=self.f_small, bg=PAPER, fg=colour,
-                 width=13, anchor="e").pack(side="right", padx=(10, 0), anchor="n", pady=pady)
+        # the size is in the colour; the word went for less clutter (his ask, 2026-11-06)
+        tk.Label(parent, text=tokens, font=self.f_small, bg=PAPER, fg=colour,
+                 width=6, anchor="e").pack(side="right", padx=(10, 0), anchor="n", pady=pady)
 
     def _draw_history(self, note):
         review = note["status"] == "review"  # finished, waiting on lando: shown like done
         done = note["status"] == "done" or review
         line = tk.Frame(self.notes_frame, bg=PAPER)
-        line.pack(fill="x", pady=2)
+        line.pack(fill="x", pady=5)
         # ✓ finished, → on the list
         tk.Label(line, text="✓" if done else "→", font=self.f_todo, bg=PAPER,
                  fg=WORK_GREEN if review else ACCENT if done else FADED_INK,
@@ -1579,7 +1733,7 @@ def close_older_copies():
         except OSError:
             continue
         if (any(a.endswith(b"vibenote/main.py") for a in args)
-                and b"--collect-usage" not in args):
+                and b"--collect-usage" not in args and b"--live-usage" not in args):
             try:
                 os.kill(int(proc.name), signal.SIGTERM)
             except OSError:
@@ -1685,7 +1839,11 @@ class TokenWarning(tk.Toplevel):
 
 
 if __name__ == "__main__":
-    if "--collect-usage" in sys.argv:
+    if "--live-usage" in sys.argv:
+        # Run as root by the Glade's Claude hook: the numbers Claude's /usage shows
+        sender.save_live_usage()
+    elif "--collect-usage" in sys.argv:
+        sender.save_live_usage(every=0)
         # Run as root (by Claude at the end of a Work batch): learn from Claude's chats
         previous = sender.load_saved_usage()
         if sender.save_if_better(sender.collect_usage(previous=previous), previous):

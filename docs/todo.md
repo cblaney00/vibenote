@@ -8,6 +8,9 @@ when one is finished, tick it and move it to **Done**.
 
 ## Done
 
+- [x] the left project bar in task notes seems cramped and it seems like it could just generally be improved, i want to be able to easily drag AND pin projects as well as order the pins
+- [x] lets just overhaul vibenote, it should also have a live usage bar from claude /usage, figure out how to make that work
+- [x] the "good time for claude" things goes to a bad time when i just use a lot of tokens even if it is a good time i think
 - [x] get hooked up to the new Infernal Ascension game when its ready
 - [x] make it so i can drag around the order of my projects somewhat smoothly and pin ones through a right click option
 - [x] add the ability to look through tips on making token usage lighter that vibenote has picked up over time

@@ -100,5 +100,21 @@ class FreshChatTest(unittest.TestCase):
         self.assertIn("idle", sender.fresh_reason(self.chat(150_000, 90), self.NOW))
         self.assertIsNone(sender.fresh_reason(self.chat(80_000, 300), self.NOW))
 
+class LiveUsageTest(unittest.TestCase):
+    def test_a_passed_reset_shows_empty(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "live.json"
+            path.write_text(json.dumps({
+                "at": "2026-11-06T06:00:00+00:00",
+                "five_hour": {"percent": 80.0, "resets": "2026-11-06T08:00:00+00:00"},
+                "week": {"percent": 30.0, "resets": "2026-11-12T19:00:00+00:00"}}))
+            live = sender.load_live_usage(path, now=datetime(2026, 11, 6, 9, tzinfo=NY))
+            self.assertEqual(live["five_hour"]["percent"], 0.0)
+            self.assertEqual(live["week"]["percent"], 30.0)
+            self.assertIsNone(sender.load_live_usage(Path(d) / "none.json"))
+
+
 if __name__ == "__main__":
     unittest.main()

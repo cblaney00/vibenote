@@ -274,8 +274,12 @@ class Store:
         return sorted(slugs, key=lambda s: (s not in self.pinned, s not in placed,
                                             placed.get(s, 0), -len(self.all(s)), s))
 
-    def set_order(self, slugs: list[str]):
+    def set_order(self, slugs: list[str], pinned: list[str] | None = None):
+        """His dragged order; pinned: the ones he dropped in the Pinned box, if he moved one
+        in or out of it."""
         self.order = list(slugs)
+        if pinned is not None:
+            self.pinned = [s for s in slugs if s in pinned]
         self.save()
 
     def toggle_pin(self, slug: str, order: list[str]):

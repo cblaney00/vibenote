@@ -215,6 +215,15 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(Store(self.path).sidebar_order(slugs), ["mid", "small", "big"])
         self.assertEqual(Store(self.path).pinned, [])
 
+    def test_dragging_into_and_out_of_pinned(self):
+        s = Store(self.path)
+        slugs = ["a", "b", "c"]
+        s.set_order(["c", "a", "b"], pinned=["c", "a"])  # dropped a into Pinned, under c
+        self.assertEqual(Store(self.path).pinned, ["c", "a"])
+        self.assertEqual(s.sidebar_order(slugs), ["c", "a", "b"])
+        s.set_order(["a", "c", "b"], pinned=["a"])  # c dragged out, below a
+        self.assertEqual(s.sidebar_order(slugs), ["a", "c", "b"])
+
 
 if __name__ == "__main__":
     unittest.main()

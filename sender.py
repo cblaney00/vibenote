@@ -431,6 +431,74 @@ def load_usage(path: Path = USAGE) -> dict | None:
     return load_saved_usage(path)
 
 
+# --- live usage, the numbers Claude's /usage shows (his ask, 2026-11-06) ------------------
+# Claude's own server says how full the 5-hour and weekly limits are. Asking needs the login
+# in /root/.claude/.credentials.json, so only root can: `vibenote --live-usage` does, and the
+# Glade's Claude hook runs it after Claude's replies (at most once a minute), which is when
+# the numbers change. VibeNote, as him, reads LIVE.
+
+LIVE = USAGE.with_name("live.json")
+CREDENTIALS = Path(os.environ.get("VIBENOTE_CREDENTIALS", "/root/.claude/.credentials.json"))
+LIVE_URL = "https://api.anthropic.com/api/oauth/usage"
+
+
+def fetch_live_usage(credentials: Path = CREDENTIALS) -> dict | None:
+    """{"five_hour": {"percent", "resets"}, "week": {...}, "email", "at"}, or None."""
+    import urllib.request
+    from datetime import datetime, timezone
+    try:
+        token = json.loads(credentials.read_text())["claudeAiOauth"]["accessToken"]
+        req = urllib.request.Request(LIVE_URL, headers={
+            "Authorization": f"Bearer {token}", "anthropic-beta": "oauth-2025-04-20",
+            "User-Agent": "vibenote"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            got = json.loads(r.read())
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    live = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    for ours, theirs in (("five_hour", "five_hour"), ("week", "seven_day")):
+        part = got.get(theirs) or {}
+        if part.get("utilization") is not None:
+            live[ours] = {"percent": float(part["utilization"]), "resets": part.get("resets_at")}
+    try:
+        live["email"] = json.loads(CLAUDE_JSON.read_text())["oauthAccount"]["emailAddress"]
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return live if len(live) > 1 else None
+
+
+def save_live_usage(path: Path = LIVE, every: int = 60) -> bool:
+    """Ask for the live numbers, unless they were fetched less than `every` seconds ago."""
+    try:
+        if time.time() - path.stat().st_mtime < every:
+            return False
+    except OSError:
+        pass
+    live = fetch_live_usage()
+    if not live:
+        return False
+    save_usage(live, path)
+    return True
+
+
+def load_live_usage(path: Path = LIVE, now=None) -> dict | None:
+    """The saved live numbers, with any limit whose reset time has passed shown as empty."""
+    from datetime import datetime, timezone
+    try:
+        live = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    now = now or datetime.now(timezone.utc)
+    for key in ("five_hour", "week"):
+        part = live.get(key)
+        try:
+            if part and datetime.fromisoformat(part["resets"]) <= now:
+                live[key] = {"percent": 0.0, "resets": None}
+        except (TypeError, ValueError, KeyError):
+            pass
+    return live
+
+
 def is_busy(when) -> bool:
     """Claude's busiest hours: weekday mornings in California (8am-2pm for him). Anthropic
     made the 5-hour limits run out faster then (March 2026); later reports say not for Claude
@@ -568,22 +636,16 @@ def short_tokens(n: float) -> str:
 def good_time(guess: TokenGuess, now=None) -> tuple[str, str]:
     """The sign (his ask: "if it is a good time to claude or not from a token perspective").
     Returns (level, why): level is "good", "ok" or "bad"."""
-    from datetime import datetime, timezone
+    from datetime import datetime
     now = now or datetime.now().astimezone()
-    usage = guess.usage
     # Claude's busiest hours are weekday mornings in California; Anthropic has made the
     # 5-hour limits run out faster then (March 2026), though later reports say not for
     # Claude Code. Said as "may".
     if is_busy(now):
         more = round((guess.busy_factor - 1) * 100)
         return "bad", f"Busy hours: estimates +{more}% until 2pm."
-    try:
-        fresh = (datetime.now(timezone.utc)
-                 - datetime.fromisoformat(usage["updated"])).total_seconds() < 20 * 60
-    except (KeyError, ValueError, TypeError):
-        fresh = False
-    if fresh and usage.get("max5h") and usage.get("last5h", 0) > 0.7 * usage["max5h"]:
-        return "bad", "Lots used in the last 5 hours."
+    # Only the time of day: how much he has used is the usage bars' job, and the sign
+    # turning "bad" after a busy evening of his own read as a bad time (his catch, 2026-11-06)
     return "good", "Quiet hours."
 
 
