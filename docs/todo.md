@@ -8,6 +8,7 @@ when one is finished, tick it and move it to **Done**.
 
 ## Done
 
+- [x] vibenote should launch things in plan mode
 - [x] the projects tabs are too big, the notes should be copy/paste-able
 - [x] vibenote is a bit laggy when switching between projects and also hovering over notes is a bit jumpy
 - [x] the left project bar in task notes seems cramped and it seems like it could just generally be improved, i want to be able to easily drag AND pin projects as well as order the pins

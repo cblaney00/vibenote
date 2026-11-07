@@ -34,7 +34,10 @@ if [ -n "$PREPARE" ]; then
 fi
 case "$sessions" in ""|*[!0-9]*) sessions=0 ;; esac
 
+# Plan mode (his ask, 2026-11-06: "vibenote should launch things in plan mode"): Claude
+# plans the work and waits for his OK before changing anything
 run() {
+  set -- --permission-mode plan "$@"
   case "$kind" in
     re) exec sudo "$RE_LAUNCHER" "$@" ;;
     game) exec sudo "$GD_LAUNCHER" $HOOKS "$@" ;;

@@ -46,7 +46,9 @@ Two buttons (his ask, 2026-10-30):
   items touching the same code, ask all look-and-feel questions at once up front, no redoing
   work, short messages. It goes into the project's open chat; if none is open, a new kitty
   terminal opens Claude on the project (his last chat, or a fresh one) with it as the first
-  message.
+  message. **In plan mode** (his ask, 2026-11-06): Claude plans and waits for his OK before
+  changing anything — a new chat starts with `--permission-mode plan` (`open_chat.sh`'s
+  `run`), an open one is sent `/plan` first (`sender.to_plan_mode`; safe if already in it).
 
 **Fresh chats** (his ask, 2026-11-02: "make sure that the cache is cleared for each project
 often but not all the time, i just dont want the referencing to take too many tokens"). Every

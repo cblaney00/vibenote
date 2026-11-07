@@ -225,6 +225,16 @@ def work_plan(project: Project, usage: dict | None) -> tuple[bool, str | None]:
     return bool(why), why
 
 
+def to_plan_mode(pid: int) -> bool:
+    """Plan mode (his ask, 2026-11-06: "vibenote should launch things in plan mode"): Claude
+    plans the work and waits for his OK before changing anything. A new chat starts in it
+    (open_chat.sh); an open one is switched with Claude's /plan."""
+    if not type_into_chat(pid, "/plan"):
+        return False
+    time.sleep(1.5)
+    return True
+
+
 def start_work(project: Project, items: list[str], usage: dict | None = None) -> str:
     """Work (uses his tokens; he has agreed by now): its Claude starts on these items, in the
     open chat if there is one, else a new one; started fresh first if the chat has grown
@@ -235,10 +245,10 @@ def start_work(project: Project, items: list[str], usage: dict | None = None) ->
     if pid:
         if fresh and type_into_chat(pid, "/clear"):
             time.sleep(3)  # let it finish starting over before the message arrives
-            if type_into_chat(pid, text):
-                return f"{project.title}'s Claude started a fresh chat and is on it"
-        elif type_into_chat(pid, text):
-            return f"{project.title}'s Claude is on it"
+            if to_plan_mode(pid) and type_into_chat(pid, text):
+                return f"{project.title}'s Claude started a fresh chat and is planning it"
+        elif to_plan_mode(pid) and type_into_chat(pid, text):
+            return f"{project.title}'s Claude is planning it"
     open_new_chat(project, text, fresh=fresh)
     return (f"Opened a fresh Claude terminal for {project.title}" if fresh
             else f"Opened a new Claude terminal for {project.title}")
