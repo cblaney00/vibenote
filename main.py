@@ -315,10 +315,13 @@ class VibeNote(tk.Tk):
         entry_row = tk.Frame(body, bg=FIELD, highlightthickness=1, highlightbackground=RULE)
         entry_row.pack(fill="x", pady=(0, 14))
         self.entry_row = entry_row
-        self.entry = tk.Entry(entry_row, font=self.f_note, bg=FIELD, fg=INK,
-                              insertbackground=INK, relief="flat", highlightthickness=0)
-        self.entry.pack(fill="x", ipady=10, padx=12)
-        self.entry.bind("<Return>", lambda e: self.add_note())
+        # It grows as the note wraps, so a long one shows in full (his ask, 2026-11-09)
+        self.entry = tk.Text(entry_row, font=self.f_note, bg=FIELD, fg=INK, height=1,
+                             wrap="word", insertbackground=INK, relief="flat",
+                             highlightthickness=0, padx=0, pady=10)
+        self.entry.pack(fill="x", padx=12)
+        self._growing(self.entry)
+        self.entry.bind("<Return>", lambda e: self.add_note() or "break")
         self._placeholder = "Write a note and press Enter…"
         self._show_placeholder()
         self.entry.bind("<FocusIn>", lambda e: self._hide_placeholder())
@@ -409,14 +412,36 @@ class VibeNote(tk.Tk):
         self.after(12, self._glide_step)
 
     def _show_placeholder(self):
-        if not self.entry.get():
-            self.entry.insert(0, self._placeholder)
+        if not self.entry.get("1.0", "end-1c"):
+            self.entry.insert("1.0", self._placeholder)
             self.entry.configure(fg=FADED_INK)
 
     def _hide_placeholder(self):
-        if self.entry.get() == self._placeholder and self.entry.cget("fg") == FADED_INK:
-            self.entry.delete(0, "end")
+        if (self.entry.get("1.0", "end-1c") == self._placeholder
+                and self.entry.cget("fg") == FADED_INK):
+            self.entry.delete("1.0", "end")
             self.entry.configure(fg=INK)
+
+    def _growing(self, box, most=6):
+        """A text box as tall as its wrapped text, up to `most` lines (then it scrolls), so a
+        long note shows in full while he types it (his ask, 2026-11-09). Notes are one line:
+        pasted line breaks become spaces."""
+        def fit(_=None):
+            text = box.get("1.0", "end-1c")
+            if "\n" in text:
+                at = box.index("insert")
+                box.delete("1.0", "end")
+                box.insert("1.0", " ".join(text.split("\n")))
+                box.mark_set("insert", at)
+            lines = box.count("1.0", "end-1c", "displaylines") or 0
+            lines = (lines[0] if isinstance(lines, tuple) else lines) + 1
+            if int(box.cget("height")) != min(lines, most):
+                box.configure(height=min(lines, most))
+            box.see("insert")
+
+        for seq in ("<KeyRelease>", "<<Paste>>", "<Configure>"):
+            box.bind(seq, lambda e: box.after_idle(fit), add="+")
+        box.after_idle(fit)
 
     # --- drawing ----------------------------------------------------------
 
@@ -1540,7 +1565,7 @@ class VibeNote(tk.Tk):
                 self.after(100, apply)
                 return
             f = self.focus_get()
-            editing = isinstance(f, tk.Entry) and f is not self.entry
+            editing = getattr(f, "editing", False) or isinstance(f, tk.Entry)
             if not editing and self.sending is None and self.sync(found):
                 self.refresh(keep_scroll=True)
             self.after(10_000, self._reread_todo)
@@ -1604,12 +1629,13 @@ class VibeNote(tk.Tk):
         self.show(None)
 
     def add_note(self):
-        text = self.entry.get()
+        text = self.entry.get("1.0", "end-1c")
         if text == self._placeholder and self.entry.cget("fg") == FADED_INK:
             return
         note = self.current and self.store.add(self.current.slug, text)
         if note:
-            self.entry.delete(0, "end")
+            self.entry.delete("1.0", "end")
+            self.entry.configure(height=1)
             self.refresh(keep_scroll=True)
             self._take_snapshot(self.current, note)
 
@@ -1694,13 +1720,15 @@ class VibeNote(tk.Tk):
     def edit_note(self, note, line, label):
         """Swap the note for a text box; Enter or clicking away saves it, Esc leaves it as it was."""
         label.pack_forget()
-        box = tk.Entry(line, font=self.f_note, bg=FIELD, fg=INK, relief="flat",
-                       insertbackground=INK, highlightthickness=1,
-                       highlightbackground=RULE, highlightcolor=ACCENT)
-        box.insert(0, note["text"])
+        box = tk.Text(line, font=self.f_note, bg=FIELD, fg=INK, relief="flat", height=1,
+                      wrap="word", insertbackground=INK, highlightthickness=1, padx=1, pady=1,
+                      highlightbackground=RULE, highlightcolor=ACCENT)
+        box.editing = True  # the 10 s to-do re-read waits while he edits
+        box.insert("1.0", note["text"])
         box.pack(side="left", fill="x", expand=True)
+        self._growing(box, most=20)  # the whole note, however long
         box.focus_set()
-        box.icursor("end")
+        box.mark_set("insert", "end-1c")
         done = []
 
         def finish(save=True):
@@ -1708,10 +1736,10 @@ class VibeNote(tk.Tk):
                 return
             done.append(True)
             if save:
-                self.store.edit(self.current.slug, note["id"], box.get())
+                self.store.edit(self.current.slug, note["id"], box.get("1.0", "end-1c"))
             self.refresh(keep_scroll=True)
 
-        box.bind("<Return>", lambda e: finish())
+        box.bind("<Return>", lambda e: finish() or "break")
         box.bind("<FocusOut>", lambda e: finish())
         box.bind("<Escape>", lambda e: finish(save=False))
 
