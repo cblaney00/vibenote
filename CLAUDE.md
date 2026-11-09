@@ -171,6 +171,12 @@ text, Ctrl+C copies; a click without moving still edits a waiting note. Notes ar
 and selects in that; Esc or clicking away clears it. The Done block uses Tk's own selecting.
 Sidebar rows are thin since then (his pick: "thinner rows, same text", `pady=3`).
 
+**Growing note boxes** (his ask, 2026-11-09: a long unsent note hid in a one-line box, so he
+had to arrow along it): the "Write a note…" box and the edit box are `tk.Text`s that grow with
+the wrapped text (`_growing`: up to 6 lines for the new-note box, then it scrolls; 20 for an
+edit, so the whole note shows). Enter still adds/saves; pasted line breaks become spaces. The
+edit box carries `editing = True`, which the 10 s to-do re-read checks.
+
 **Find** (Ctrl+F, his ask): a box over the page; every note in every project (and its
 snapshot) with all the words, lit up; click one to open its project; Esc goes back.
 
