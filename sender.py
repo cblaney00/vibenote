@@ -14,7 +14,14 @@ import time
 from pathlib import Path
 
 from projects import Project
-from store import condense
+from store import HIS, condense
+
+# Lando's Claude files and VibeNote's are in his own home; insideabush's are root's and his.
+# VIBENOTE_MODE=lando (or `vibenote --lando`) shows Lando mode on his computer too.
+LANDO = os.environ.get("VIBENOTE_MODE", "" if HIS else "lando") == "lando"
+CLAUDE_HOME = Path("/root") if HIS else Path.home()
+DATA = (Path("/home/insideabush/.local/share/vibenote") if HIS
+        else Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / "vibenote")
 
 HERE = Path(__file__).resolve().parent
 STATE = Path.home() / ".local/state/glade/claude"
@@ -261,10 +268,9 @@ def start_work(project: Project, items: list[str], usage: dict | None = None) ->
 # the count Claude shows him. Counting what it re-reads every step as well gave millions per
 # note, which he called "crazy high" (2026-11-01: his 3-item batch was ~50k, and it was 52.7k).
 
-TRANSCRIPTS = Path(os.environ.get("VIBENOTE_TRANSCRIPTS", "/root/.claude/projects"))
-CLAUDE_JSON = Path(os.environ.get("VIBENOTE_CLAUDE_JSON", "/root/.claude.json"))
-USAGE = Path(os.environ.get("VIBENOTE_USAGE",
-                            "/home/insideabush/.local/share/vibenote/usage.json"))
+TRANSCRIPTS = Path(os.environ.get("VIBENOTE_TRANSCRIPTS", CLAUDE_HOME / ".claude/projects"))
+CLAUDE_JSON = Path(os.environ.get("VIBENOTE_CLAUDE_JSON", CLAUDE_HOME / ".claude.json"))
+USAGE = Path(os.environ.get("VIBENOTE_USAGE", DATA / "usage.json"))
 WORK_START = "Please work on these items from my to-do list"
 
 
@@ -450,7 +456,8 @@ def load_usage(path: Path = USAGE) -> dict | None:
 # the numbers change. VibeNote, as him, reads LIVE.
 
 LIVE = USAGE.with_name("live.json")
-CREDENTIALS = Path(os.environ.get("VIBENOTE_CREDENTIALS", "/root/.claude/.credentials.json"))
+CREDENTIALS = Path(os.environ.get("VIBENOTE_CREDENTIALS",
+                                  CLAUDE_HOME / ".claude/.credentials.json"))
 LIVE_URL = "https://api.anthropic.com/api/oauth/usage"
 
 
@@ -491,6 +498,48 @@ def save_live_usage(path: Path = LIVE, every: int = 60) -> bool:
         return False
     save_usage(live, path)
     return True
+
+
+def refresh_own_usage(collect: bool = False):
+    """Lando's VibeNote runs as him and can read his own Claude files, so it keeps the live
+    numbers (and, with collect, the learned usage) fresh itself. On insideabush's computer
+    root does that (the Glade's hook, --collect-usage), so this does nothing there."""
+    if HIS:
+        return
+    save_live_usage()
+    if collect:
+        previous = load_saved_usage()
+        save_if_better(collect_usage(previous=previous), previous)
+
+
+def reset_text(part: dict | None, fmt: str) -> str:
+    from datetime import datetime
+    try:
+        at = datetime.fromisoformat(part["resets"]).astimezone().strftime(fmt)
+    except (TypeError, ValueError, KeyError):
+        return "starts fresh"
+    return "resets " + at.replace("AM", "am").replace("PM", "pm")
+
+
+def bar_json(live: dict | None = None, guess: "TokenGuess | None" = None) -> str:
+    """For Lando's top bar (Waybar's custom module, `vibenote --bar`): a small dial and the
+    5-hour and weekly use, the details on hover (his pick, 2026-11-09)."""
+    live = live if live is not None else load_live_usage()
+    if not live:
+        return json.dumps({"text": "◌", "class": "none",
+                           "tooltip": "VibeNote: Claude usage shows after Claude's next reply"})
+    five = round((live.get("five_hour") or {}).get("percent", 0))
+    week = round((live.get("week") or {}).get("percent", 0))
+    level, why = good_time(guess or TokenGuess(load_saved_usage()))
+    tooltip = "\n".join([
+        f"5 hours: {five}% · {reset_text(live.get('five_hour'), '%-I:%M%p')}",
+        f"This week: {week}% · {reset_text(live.get('week'), '%a %-I%p')}",
+        ("Good time for Claude" if level == "good" else "Busy hours") + f" · {why}",
+        "Click for VibeNote"])
+    most = max(five, week)
+    return json.dumps({"text": f"{'○◔◑◕●'[min(4, round(five / 25))]} {five}% · {week}%",
+                       "tooltip": tooltip, "percentage": most,
+                       "class": "high" if most >= 80 else "mid" if most >= 50 else "low"})
 
 
 def load_live_usage(path: Path = LIVE, now=None) -> dict | None:
@@ -608,10 +657,12 @@ def actual_tokens(note: dict, slug: str, usage: dict | None) -> int | None:
     return round(found["tokens"] * share)
 
 
-def token_tips(usage: dict | None, guess: "TokenGuess", title=lambda slug: slug) -> list[str]:
+def token_tips(usage: dict | None, guess: "TokenGuess", title=lambda slug: slug,
+               direct: bool = False) -> list[str]:
     """Ways to make Claude's token use lighter (his ask, 2026-11-04: "tips ... that vibenote
     has picked up over time"): worked out from his own chats where there is enough to say,
-    then the general ones that always hold."""
+    then the general ones that always hold. direct: for talking to Claude straight (Lando
+    mode), not through Send and Work."""
     from datetime import datetime
     usage = usage or {}
     t = short_tokens
@@ -635,8 +686,9 @@ def token_tips(usage: dict | None, guess: "TokenGuess", title=lambda slug: slug)
         worst = max(big, key=lambda c: c["context"])
         tips.append(f"{len(big)} of this week's chats grew past {t(LONG_CHAT)} (the biggest, "
                     f"{t(worst['context'])}, in {title(worst['project'])}). Every step Claude re-reads "
-                    "the whole chat, so a fresh one is much lighter: Work starts one for you, "
-                    "or type /clear between unrelated jobs.")
+                    "the whole chat, so a fresh one is much lighter: "
+                    + ("" if direct else "Work starts one for you, or ")
+                    + "type /clear between unrelated jobs.")
     # Times he ran into the 5-hour limit
     fives = [h for h in usage.get("hits", []) if h.get("type") == "five_hour" and h.get("at")]
     if fives:
@@ -661,6 +713,14 @@ def token_tips(usage: dict | None, guess: "TokenGuess", title=lambda slug: slug)
         tips.append(f"A change of the same size costs most in {hp} ({t(hi * 3.5)} for a "
                     f"Medium one) and least in {lp} ({t(lo * 3.5)}). Short, specific notes "
                     f"help most in {hp}.")
+    if direct:
+        return tips + [
+            "Type /clear between unrelated jobs: every step Claude re-reads the whole chat.",
+            "Ask for several related changes in one message, so Claude reads the code once.",
+            "Say exactly what you see and where, so Claude explores less.",
+            "Answer Claude's questions all together, so it doesn't re-read the project for "
+            "each one.",
+        ]
     # Always true
     tips += [
         "Send is free: it only puts notes on the to-do list. Collect several, then Work once.",
@@ -704,8 +764,7 @@ def good_time(guess: TokenGuess, now=None) -> tuple[str, str]:
 # after account 1) until he changes it. Which email is which lives only in ACCOUNTS on his
 # computer, never in this code: the code is public on GitHub.
 
-ACCOUNTS = Path(os.environ.get("VIBENOTE_ACCOUNTS",
-                               "/home/insideabush/.local/share/vibenote/accounts.json"))
+ACCOUNTS = Path(os.environ.get("VIBENOTE_ACCOUNTS", DATA / "accounts.json"))
 DEFAULT_ACCOUNTS = [
     {"name": "Account 1", "email": "", "weekday": 0, "hour": 11, "minute": 0, "guess": False},
     # "earlier": chats from before VibeNote first saw who was logged in (2 Nov 2026) count
@@ -723,7 +782,23 @@ def load_accounts(path: Path = ACCOUNTS) -> list[dict]:
             return accounts
     except (OSError, ValueError):
         pass
+    if not HIS:
+        return [lando_account()]
     return [dict(a) for a in DEFAULT_ACCOUNTS]
+
+
+def lando_account(live: dict | None = None) -> dict:
+    """Lando has one account: its week refreshes when Claude says (the live numbers)."""
+    from datetime import datetime
+    live = live if live is not None else load_live_usage() or {}
+    acc = {"name": "Claude", "email": live.get("email", ""), "weekday": 0, "hour": 0,
+           "minute": 0, "guess": True, "earlier": True}
+    try:
+        at = datetime.fromisoformat(live["week"]["resets"]).astimezone()
+        acc.update(weekday=at.weekday(), hour=at.hour, minute=at.minute, guess=False)
+    except (KeyError, TypeError, ValueError):
+        pass
+    return acc
 
 
 def save_accounts(accounts: list[dict], path: Path = ACCOUNTS):

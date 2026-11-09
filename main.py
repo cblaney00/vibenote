@@ -51,8 +51,10 @@ POPUP_CLASS = "Vibenote"
 
 
 class VibeNote(tk.Tk):
-    def __init__(self):
+    def __init__(self, lando=False, view=None):
         super().__init__(className="vibenote")
+        # Lando mode (his ask, 2026-11-09): Lando talks to Claude himself, so no Work
+        self.lando = lando
         self.title("VibeNote")
         self.geometry(f"{WIDE}x{TALL}")
         self.minsize(760, 520)
@@ -110,6 +112,10 @@ class VibeNote(tk.Tk):
         self.bind_class("vibenote-window", "<Configure>", self._resized)
         self._rewrap_all()  # notes wrapped before the notepad goes
         loading.finish()
+        if view == "usage":  # opened from the mini player (Lando mode)
+            self.show("usage")
+        elif view == "tips":
+            self.show_tips()
 
     def _resized(self, event):
         """On his desktop, parts of the page were left undrawn after the window changed size
@@ -219,61 +225,15 @@ class VibeNote(tk.Tk):
         if getattr(self, "_live_job", None):
             self.after_cancel(self._live_job)
         self._live_job = self.after(30_000, self._show_live)
+        # Lando's VibeNote fetches his numbers itself (next time's bars)
+        threading.Thread(target=sender.refresh_own_usage, daemon=True).start()
         for w in self.live_box.winfo_children():
             w.destroy()
-        live = sender.load_live_usage()
-        if not live:
-            tk.Label(self.live_box, text="Live usage shows after Claude's next reply.",
-                     font=self.f_small, bg=SIDEBAR, fg=FADED_INK, anchor="w", justify="left",
-                     wraplength=self.side_w - 40).pack(fill="x")
-            return
-        name = next((a["name"] for a in sender.load_accounts()
-                     if a.get("email") and a["email"] == live.get("email")), "")
-        try:
-            age = (datetime.now().astimezone()
-                   - datetime.fromisoformat(live["at"])).total_seconds() / 60
-        except (KeyError, ValueError):
-            age = 0
-        old = (f" · {round(age / 60)}h ago" if age >= 90 else f" · {round(age)} min ago"
-               if age >= 15 else "")
-        tk.Label(self.live_box, text=(name or "Claude") + " now" + old, font=self.f_section,
-                 bg=SIDEBAR, fg=FADED_INK, anchor="w").pack(fill="x", pady=(0, 4))
-        for key, title, when in (("five_hour", "5 hours", "%-I:%M%p"),
-                                 ("week", "This week", "%a %-I%p")):
-            part = live.get(key)
-            if not part:
-                continue
-            pct = max(0.0, min(100.0, part["percent"]))
-            try:
-                resets = datetime.fromisoformat(part["resets"]).astimezone().strftime(when)
-                resets = "resets " + resets.replace("AM", "am").replace("PM", "pm")
-            except (TypeError, ValueError, KeyError):
-                resets = "starts fresh"
-            top = tk.Frame(self.live_box, bg=SIDEBAR)
-            top.pack(fill="x")
-            tk.Label(top, text=f"{round(pct)}%", font=self.f_small, bg=SIDEBAR,
-                     fg=self._live_colour(pct)).pack(side="right")
-            tk.Label(top, text=title, font=self.f_small, bg=SIDEBAR, fg=INK).pack(side="left")
-            # the reset time beside the title when there is room, else under the bar
-            beside = (self.f_small.measure(f"{title} · {resets} 100%") <= self.side_w - 40)
-            if beside:
-                tk.Label(top, text=" · " + resets, font=self.f_small, bg=SIDEBAR,
-                         fg=FADED_INK).pack(side="left")
-            bar_w, bar_h = self.side_w - 40, 8
-            bar = tk.Canvas(self.live_box, width=bar_w, height=bar_h, bg=SIDEBAR,
-                            highlightthickness=0)
-            bar.pack(fill="x", pady=(3, 9 if beside else 1))
-            bar.create_rectangle(0, 0, bar_w, bar_h, fill=RULE, width=0)
-            if pct:
-                bar.create_rectangle(0, 0, max(3, bar_w * pct / 100), bar_h,
-                                     fill=self._live_colour(pct), width=0)
-            if not beside:
-                tk.Label(self.live_box, text=resets, font=self.f_small, bg=SIDEBAR,
-                         fg=FADED_INK, anchor="w").pack(fill="x", pady=(0, 6))
+        draw_live(self.live_box, self.f_small, self.f_section, self.side_w - 40, SIDEBAR)
 
     @staticmethod
     def _live_colour(pct):
-        return WORK_GREEN if pct < 50 else INK if pct < 80 else ACCENT
+        return live_colour(pct)
 
     def _build_page(self):
         page = tk.Frame(self, bg=PAPER)
@@ -333,7 +293,8 @@ class VibeNote(tk.Tk):
         bottom.pack(side="bottom", fill="x", pady=(10, 0))
         self.bottom = bottom
         self.work_btn = Button(bottom, self.f_button, self.work, main=True)
-        self.work_btn.pack(side="right")
+        if not self.lando:
+            self.work_btn.pack(side="right")
         self.send_btn = Button(bottom, self.f_button, self.send, main=False)
         self.send_btn.pack(side="right", padx=(0, 10))
         # Organize (his ask): a free rough guess at each change's size, smallest first
@@ -908,7 +869,7 @@ class VibeNote(tk.Tk):
     def _draw_tips(self, usage):
         """Tips for lighter tokens, at the bottom of the usage page (his pick, 2026-11-04)."""
         self._heading("Tips for lighter tokens · learned from your chats")
-        for tip in sender.token_tips(usage, self.guess, self._title_of):
+        for tip in sender.token_tips(usage, self.guess, self._title_of, direct=self.lando):
             self._line(f"•  {tip}", pady=(0, 6))
 
     def show_tips(self):
@@ -1240,6 +1201,8 @@ class VibeNote(tk.Tk):
         row.pack(fill="x", pady=(8 if top else 38, 6))
         if notes:
             for which, colour, shown in (("work", WORK_GREEN, True), ("send", ACCENT, send)):
+                if which == "work" and self.lando:
+                    continue
                 cell = tk.Frame(row, bg=PAPER, width=self.tick_w, height=self.head_h)
                 cell.pack(side="right")
                 cell.pack_propagate(False)
@@ -1274,6 +1237,8 @@ class VibeNote(tk.Tk):
 
     def _tick_cell(self, parent, note, which):
         """One tick box in the "send" or "work" column; None draws an empty cell."""
+        if which == "work" and self.lando:
+            return  # no Work column in Lando mode
         cell = tk.Frame(parent, bg=PAPER, width=self.tick_w, height=self.tick_h)
         cell.pack(side="right", anchor="n")
         cell.pack_propagate(False)
@@ -1591,8 +1556,10 @@ class VibeNote(tk.Tk):
         (on a side thread: reading them takes a second or two), then update the sign and the
         guesses. again: keep doing it every 5 minutes. then: run afterwards."""
         found = []
-        reader = threading.Thread(target=lambda: found.append(sender.load_usage()),
-                                  daemon=True)
+        def read():
+            sender.refresh_own_usage(collect=True)  # Lando mode: learns from his own chats
+            found.append(sender.load_usage())
+        reader = threading.Thread(target=read, daemon=True)
         reader.start()
 
         def apply():
@@ -1670,6 +1637,8 @@ class VibeNote(tk.Tk):
     def _tick_all_row(self, notes, sent):
         """One place to tick everything (his ask, 2026-11-02): all waiting notes for Send,
         everything open (waiting and on the list) for Work, or untick it all."""
+        if self.lando and not notes:
+            return  # only Send ticks in Lando mode: nothing waiting, nothing to tick
         row = tk.Frame(self.notes_frame, bg=PAPER)
         row.pack(fill="x", pady=(0, 6))
         tk.Label(row, text="Tick all:", font=self.f_small, bg=PAPER, fg=FADED_INK).pack(
@@ -1678,6 +1647,8 @@ class VibeNote(tk.Tk):
         links = [("Send", ACCENT, lambda: self.tick_every(notes, "send", True)),
                  ("Work", WORK_GREEN, lambda: self.tick_every(everything, "work", True)),
                  ("Untick all", FADED_INK, lambda: self.untick_every(everything))]
+        if self.lando:
+            links.pop(1)
         if not notes:
             links.pop(0)
         for text, colour, action in links:
@@ -2029,12 +2000,133 @@ class SnapshotDetails(tk.Toplevel):
         centre_on(app, self)
 
 
-def close_older_copies():
+class Mini(tk.Tk):
+    """Lando mode's mini player (his pick, 2026-11-09: "minimized almost like a miniplayer
+    ... not a lot of text by default"): the good-time dot, the two usage bars and one tip.
+    Notes, Usage and Tips open the whole app (without Work). .next says which."""
+
+    WIDTH = 340
+
+    def __init__(self):
+        super().__init__(className="vibenote")
+        self.title("VibeNote")
+        self.configure(bg=SIDEBAR)
+        self.resizable(False, False)
+        self.next = None
+        self.f_small = tkfont.Font(family=SERIF, size=13)
+        self.f_section = tkfont.Font(family=SERIF, size=11, weight="bold")
+        self.f_side = tkfont.Font(family=SERIF, size=15)
+        box = tk.Frame(self, bg=SIDEBAR)
+        box.pack(fill="both", expand=True, padx=20, pady=16)
+        self.sign = tk.Label(box, font=self.f_side, bg=SIDEBAR, anchor="w")
+        self.sign.pack(fill="x")
+        self.live = tk.Frame(box, bg=SIDEBAR)
+        self.live.pack(fill="x", pady=(8, 0))
+        self.tip = tk.Label(box, font=self.f_small, bg=SIDEBAR, fg=FADED_INK, anchor="w",
+                            justify="left", wraplength=self.WIDTH - 40)
+        self.tip.pack(fill="x", pady=(6, 12))
+        links = tk.Frame(box, bg=SIDEBAR)
+        links.pack(anchor="w")
+        for text, view in (("Notes ›", "notes"), ("Usage ›", "usage"), ("Tips ›", "tips")):
+            SmallButton(links, self.f_small, lambda v=view: self.open(v), ACCENT, text).pack(
+                side="left", padx=(0, 8))
+        self.bind("<Escape>", lambda e: self.destroy())
+        self.show()
+        self.after(200, self._float)
+
+    def show(self):
+        """Re-read every 30 s; his own numbers are fetched on a side thread for next time."""
+        threading.Thread(target=sender.refresh_own_usage, daemon=True).start()
+        guess = sender.TokenGuess(sender.load_usage())
+        level, _ = sender.good_time(guess)
+        self.sign.configure(text="● Good time for Claude" if level == "good"
+                            else "● Busy hours for Claude",
+                            fg=WORK_GREEN if level == "good" else ACCENT)
+        for w in self.live.winfo_children():
+            w.destroy()
+        draw_live(self.live, self.f_small, self.f_section, self.WIDTH - 40, SIDEBAR)
+        tips = sender.token_tips(guess.usage, guess, direct=True)
+        self.tip.configure(text="Tip: " + tips[0] if tips else "")
+        self.after(30_000, self.show)
+
+    def open(self, view):
+        self.next = view
+        self.destroy()
+
+    def _float(self):
+        if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+            return
+        try:
+            subprocess.run(["hyprctl", "dispatch", "setfloating", f"pid:{os.getpid()}"],
+                           capture_output=True, timeout=3)
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+
+def live_colour(pct):
+    return WORK_GREEN if pct < 50 else INK if pct < 80 else ACCENT
+
+
+def draw_live(box, f_small, f_section, width, bg):
+    """The two bars Claude's /usage shows, in box (the sidebar, or the mini player)."""
+    live = sender.load_live_usage()
+    if not live:
+        tk.Label(box, text="Live usage shows after Claude's next reply.",
+                 font=f_small, bg=bg, fg=FADED_INK, anchor="w", justify="left",
+                 wraplength=width).pack(fill="x")
+        return
+    name = next((a["name"] for a in sender.load_accounts()
+                 if a.get("email") and a["email"] == live.get("email")), "")
+    try:
+        age = (datetime.now().astimezone()
+               - datetime.fromisoformat(live["at"])).total_seconds() / 60
+    except (KeyError, ValueError):
+        age = 0
+    old = (f" · {round(age / 60)}h ago" if age >= 90 else f" · {round(age)} min ago"
+           if age >= 15 else "")
+    tk.Label(box, text=(name or "Claude") + " now" + old, font=f_section,
+             bg=bg, fg=FADED_INK, anchor="w").pack(fill="x", pady=(0, 4))
+    for key, title, when in (("five_hour", "5 hours", "%-I:%M%p"),
+                             ("week", "This week", "%a %-I%p")):
+        part = live.get(key)
+        if not part:
+            continue
+        pct = max(0.0, min(100.0, part["percent"]))
+        try:
+            resets = datetime.fromisoformat(part["resets"]).astimezone().strftime(when)
+            resets = "resets " + resets.replace("AM", "am").replace("PM", "pm")
+        except (TypeError, ValueError, KeyError):
+            resets = "starts fresh"
+        top = tk.Frame(box, bg=bg)
+        top.pack(fill="x")
+        tk.Label(top, text=f"{round(pct)}%", font=f_small, bg=bg,
+                 fg=live_colour(pct)).pack(side="right")
+        tk.Label(top, text=title, font=f_small, bg=bg, fg=INK).pack(side="left")
+        # the reset time beside the title when there is room, else under the bar
+        beside = (f_small.measure(f"{title} · {resets} 100%") <= width)
+        if beside:
+            tk.Label(top, text=" · " + resets, font=f_small, bg=bg,
+                     fg=FADED_INK).pack(side="left")
+        bar_w, bar_h = width, 8
+        bar = tk.Canvas(box, width=bar_w, height=bar_h, bg=bg,
+                        highlightthickness=0)
+        bar.pack(fill="x", pady=(3, 9 if beside else 1))
+        bar.create_rectangle(0, 0, bar_w, bar_h, fill=RULE, width=0)
+        if pct:
+            bar.create_rectangle(0, 0, max(3, bar_w * pct / 100), bar_h,
+                                 fill=live_colour(pct), width=0)
+        if not beside:
+            tk.Label(box, text=resets, font=f_small, bg=bg,
+                     fg=FADED_INK, anchor="w").pack(fill="x", pady=(0, 6))
+
+
+def close_older_copies() -> int:
     """One VibeNote at a time (2026-11-02): an older copy left open after an update kept the
     old code, so its token warning still came up in the screen's corner. Opening VibeNote
     closes any other copy he has running; notes are saved as he goes, so nothing is lost."""
     import signal
     me = os.getpid()
+    closed = 0
     for proc in Path("/proc").iterdir():
         if not proc.name.isdigit() or int(proc.name) == me:
             continue
@@ -2045,11 +2137,13 @@ def close_older_copies():
         except OSError:
             continue
         if (any(a.endswith(b"vibenote/main.py") for a in args)
-                and b"--collect-usage" not in args and b"--live-usage" not in args):
+                and not {b"--collect-usage", b"--live-usage", b"--bar"} & set(args)):
             try:
                 os.kill(int(proc.name), signal.SIGTERM)
+                closed += 1
             except OSError:
                 pass
+    return closed
 
 
 def centre_on(app, win):
@@ -2163,6 +2257,20 @@ if __name__ == "__main__":
         else:
             print("VibeNote: couldn't see Claude's chats from here, so the saved token use "
                   "was kept. Run it as root, outside any sandbox.")
+    elif "--bar" in sys.argv:
+        # Lando's top bar (Waybar) runs this every minute: the dial and the numbers
+        sender.refresh_own_usage()
+        print(sender.bar_json(), flush=True)
     else:
-        close_older_copies()
-        VibeNote().mainloop()
+        # --toggle (the top bar's click): a second click closes the open VibeNote
+        if close_older_copies() and "--toggle" in sys.argv:
+            sys.exit()
+        if "--lando" in sys.argv or sender.LANDO:
+            mini = None
+            if "--full" not in sys.argv:
+                mini = Mini()
+                mini.mainloop()
+            if mini is None or mini.next:
+                VibeNote(lando=True, view=mini and mini.next).mainloop()
+        else:
+            VibeNote().mainloop()

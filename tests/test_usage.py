@@ -1,3 +1,4 @@
+import json
 import sys
 import unittest
 from datetime import datetime
@@ -118,3 +119,29 @@ class LiveUsageTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LandoModeTest(unittest.TestCase):
+    """Lando mode (2026-11-09): his top bar, his one account, tips for using Claude directly."""
+
+    LIVE = {"at": "2026-11-09T20:00:00+00:00", "email": "x@y",
+            "five_hour": {"percent": 52.0, "resets": "2026-11-10T01:30:00+00:00"},
+            "week": {"percent": 81.4, "resets": "2026-11-16T16:00:00+00:00"}}
+
+    def test_bar(self):
+        bar = json.loads(sender.bar_json(self.LIVE, sender.TokenGuess(None)))
+        self.assertEqual(bar["text"], "◑ 52% · 81%")
+        self.assertEqual(bar["class"], "high")  # the fuller of the two
+        self.assertIn("This week: 81%", bar["tooltip"])
+        self.assertEqual(json.loads(sender.bar_json({}, None))["class"], "none")
+
+    def test_one_account_refreshing_when_claude_says(self):
+        acc = sender.lando_account(self.LIVE)
+        at = datetime.fromisoformat(self.LIVE["week"]["resets"]).astimezone()
+        self.assertEqual((acc["weekday"], acc["hour"]), (at.weekday(), at.hour))
+        self.assertFalse(acc["guess"])
+
+    def test_direct_tips_never_mention_work(self):
+        tips = sender.token_tips({"chats": {"a": {"context": 300_000, "project": "p"}}},
+                                 sender.TokenGuess(None), direct=True)
+        self.assertFalse(any("Work" in t or "Send" in t for t in tips))

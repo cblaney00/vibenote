@@ -22,6 +22,19 @@ from datetime import date
 from pathlib import Path
 
 
+def _user() -> str:
+    import getpass
+    try:
+        return getpass.getuser()
+    except (OSError, KeyError):
+        return ""
+
+
+# Lando mode (his ask, 2026-11-09): on Lando's computers, anyone but insideabush (and root,
+# which collects his usage for him) is Lando, whose Claude talks to him directly.
+HIS = _user() in ("insideabush", "root")
+
+
 def data_file() -> Path:
     override = os.environ.get("VIBENOTE_DATA")
     if override:

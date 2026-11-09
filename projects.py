@@ -6,9 +6,10 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from store import same as _same
+from store import HIS, same as _same
 
-PROJECTS_DIR = Path(os.environ.get("VIBENOTE_PROJECTS", "/home/insideabush/projects"))
+PROJECTS_DIR = Path(os.environ.get("VIBENOTE_PROJECTS", "/home/insideabush/projects" if HIS
+                                   else Path.home() / "projects"))
 
 
 @dataclass
@@ -240,10 +241,15 @@ def _field(text, name):
 
 def find_projects(base: Path = PROJECTS_DIR) -> list[Project]:
     found = []
-    for marker in sorted(base.glob("*/.vibe-project")):
+    markers = sorted(base.glob("*/.vibe-project"))
+    if not HIS and not markers:
+        # Lando's projects are plain git folders, in ~/projects or his home (Lando mode)
+        roots = [base] if base.is_dir() else [Path.home()]
+        markers = sorted(m for r in roots for m in r.glob("*/.git"))
+    for marker in markers:
         folder = marker.parent
         try:
-            text = marker.read_text()
+            text = marker.read_text() if marker.is_file() else ""
         except OSError:
             continue
         title = _field(text, "title") or folder.name
