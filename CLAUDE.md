@@ -177,6 +177,17 @@ the wrapped text (`_growing`: up to 6 lines for the new-note box, then it scroll
 edit, so the whole note shows). Enter still adds/saves; pasted line breaks become spaces. The
 edit box carries `editing = True`, which the 10 s to-do re-read checks.
 
+**Lando mode** (his ask, 2026-11-09; details and the config change it needs:
+`docs/lando-mode/README.md`). For Lando, who talks to Claude himself. On by itself for anyone
+but insideabush/root (`store.HIS`, `sender.LANDO`); `vibenote --lando` previews it. Opens as a
+**mini player** (`Mini`, his pick "bars + one tip": dot, two usage bars, one tip, Notes ›
+Usage › Tips ›), which opens the full app with `lando=True`: no Work button, Work column or
+Work tick-all; tips are for using Claude directly (`token_tips(direct=True)`). Lando's own
+`~/.claude` and data dir; it refreshes them itself (`refresh_own_usage`). One account, its
+week from Claude's reset time (`lando_account`). `vibenote --bar` = Waybar JSON for his
+top bar; `--toggle` (its click) closes an open VibeNote instead of opening another. The
+Waybar module and installing it on Lando's machines are a **config** change, not done yet.
+
 **Find** (Ctrl+F, his ask): a box over the page; every note in every project (and its
 snapshot) with all the words, lit up; click one to open its project; Esc goes back.
 
