@@ -109,6 +109,14 @@ time* on weekday 5–11am Pacific (Anthropic made 5-hour limits run out faster t
 bad after he had used a lot himself, which read as a bad time (his catch, 2026-11-06); the
 usage bars show that now. Don't bring it back.
 
+**Guessed vs used** (his ask, 2026-11-09): Work keeps each note's guess (`expected`) and the
+time (`work_at`, `Store.mark_worked`); `sender.actual_tokens` finds its Work batch (first in
+that project after `work_at`, else the latest naming it) and splits the batch's tokens across
+its items by size score. Shown after the date: on hover for sent/worked items, always in
+Done — "1 Nov · guessed ~29k · used ~13k". Batches record `plan` (the Work message's
+`permissionMode`); once there are `PLAN_ENOUGH` (3) plan-mode batches, `TokenGuess` learns only
+from those (a project keeps its old rate until it has 2 of its own).
+
 **Claude usage page** (his ask, 2026-11-02; his pick: click the sign → "Claude usage ›").
 Two accounts, each with a week that refreshes at a set time — his words: **Account 1 refreshes
 Monday 11am; Account 2 "sometime nov 5"** (Thu 11pm is a guess; he can click the refresh line

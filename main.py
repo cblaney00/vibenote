@@ -375,7 +375,9 @@ class VibeNote(tk.Tk):
         p = self.current
         return (json.dumps(self.store.all(p.slug), sort_keys=True), self.later_open,
                 # its token numbers: these change only when the estimate for it does
-                self.guess.tokens(1000, datetime.now().astimezone(), p.slug))
+                self.guess.tokens(1000, datetime.now().astimezone(), p.slug),
+                # what worked-on notes really used, which changes as Claude works
+                (self.guess.usage or {}).get("updated"))
 
     def _scroll(self, steps):
         """Smooth scrolling: each turn of the wheel glides 72 px over a few frames."""
@@ -1352,6 +1354,8 @@ class VibeNote(tk.Tk):
             when = nice_date(note["worked"])  # its section already says Claude was on it
         else:
             when = nice_date(note["sent"]) if note.get("sent") else ""
+        if when:
+            when += self._guessed_used(note)
         date = None
         if when:
             # shown only while the mouse is over the item (his pick, 2026-11-02: less clutter)
@@ -1440,6 +1444,18 @@ class VibeNote(tk.Tk):
         self.later_open = not self.later_open
         self.refresh(keep_scroll=True)
 
+    def _guessed_used(self, note) -> str:
+        """" · guessed ~29k · used ~34k" for a note Claude worked on, beside its date (his
+        ask, 2026-11-09): VibeNote's guess when he pressed Work, and what the batch used."""
+        parts = []
+        if note.get("expected"):
+            parts.append(f"guessed {sender.short_tokens(note['expected'])}")
+        if note.get("worked") or note.get("work_at") or note["status"] in ("done", "review"):
+            used = sender.actual_tokens(note, self.current.slug, self.guess.usage)
+            if used:
+                parts.append(f"used {sender.short_tokens(used)}")
+        return "".join(" · " + p for p in parts)
+
     def _draw_done(self, done):
         """The Done list as one block of text, not a row of widgets per item: it can run to
         dozens of items, and rebuilding that many widgets made the window choppy."""
@@ -1455,7 +1471,8 @@ class VibeNote(tk.Tk):
         for note in done:
             box.insert("end", "✓", ("item", "tick"), "\t" + note["text"], "item")
             if note.get("done"):
-                box.insert("end", "   " + nice_date(note["done"]), ("item", "date"))
+                box.insert("end", "   " + nice_date(note["done"]) + self._guessed_used(note),
+                           ("item", "date"))
             box.insert("end", "\n", "item")
         box.delete("end-2c")  # no blank line after the last one
         box.configure(state="disabled")
@@ -1801,7 +1818,8 @@ class VibeNote(tk.Tk):
             return
         if waiting and not self._send(p, waiting):
             return
-        self.store.mark_worked(p.slug, [n["id"] for n in chosen])
+        self.store.mark_worked(p.slug, [n["id"] for n in chosen],
+                               {n["id"]: self._tokens(n) for n in chosen})
         items = [n["text"] for n in chosen]
         self.sending = "…"
         self.work_btn.set("Starting…", enabled=False)

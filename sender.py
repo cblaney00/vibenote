@@ -321,7 +321,9 @@ def collect_usage(transcripts: Path = TRANSCRIPTS, previous: dict | None = None,
                         items = [m.split(". ", 1)[1] for m in text.split("\n")
                                  if m[:1].isdigit() and ". " in m]
                         batch = {"items": items, "tokens": 0.0, "started": d.get("timestamp"),
-                                 "project": project}
+                                 "project": project,
+                                 # Work starts Claude in plan mode since 2026-11-06
+                                 "plan": d.get("permissionMode") == "plan"}
                         batches.append(batch)
                     continue
                 u = msg.get("usage")
@@ -527,6 +529,7 @@ class TokenGuess:
 
     PER_POINT = 6_000  # before any Work batch has been measured
     BUSY_GUESS = 1.25  # busy hours count this much more until his limit hits show it
+    PLAN_ENOUGH = 3  # plan-mode Work batches needed before only they are learned from
 
     def __init__(self, usage: dict | None):
         from store import size_score
@@ -536,12 +539,25 @@ class TokenGuess:
             return xs[len(xs) // 2] if xs else None
 
         # Tokens per point of size, from each Work batch; per project too, since some
-        # projects cost more per change than others (VibeNote ~6.6k, R62D ~3k)
-        rates = {}
-        for b in self.usage.get("batches", []):
+        # projects cost more per change than others (VibeNote ~6.6k, R62D ~3k). Once there
+        # are enough batches run in plan mode (how Work runs since 2026-11-06), only those
+        # count, the older ones no longer being how Work goes (his ask, 2026-11-09).
+        batches = self.usage.get("batches", [])
+        planned = [b for b in batches if b.get("plan")]
+        self.plan_mode = len(planned) >= self.PLAN_ENOUGH
+        rates, plan_rates = {}, {}
+        for b in batches:
             rate = b["tokens"] / max(sum(size_score(t) for t in b["items"]), 1)
             rates.setdefault(b.get("project"), []).append(rate)
-        everything = [r for rs in rates.values() for r in rs]
+            if b.get("plan"):
+                plan_rates.setdefault(b.get("project"), []).append(rate)
+        if self.plan_mode:
+            # a project with too few plan-mode batches of its own keeps its old rate
+            rates = {p: (plan_rates[p] if len(plan_rates.get(p, [])) >= 2 else rs)
+                     for p, rs in rates.items()}
+            everything = [r for rs in plan_rates.values() for r in rs]
+        else:
+            everything = [r for rs in rates.values() for r in rs]
         self.per_point = median(everything) or self.PER_POINT
         self.per_project = {p: median(rs) for p, rs in rates.items() if p}
         self.learned = len(everything)
@@ -567,6 +583,29 @@ class TokenGuess:
         """when: the time it would run (now if not given)."""
         rate = self.per_project.get(project, self.per_point)
         return round(max(size, 0.5) * rate * self.factor(when))
+
+
+def actual_tokens(note: dict, slug: str, usage: dict | None) -> int | None:
+    """What a worked-on note really used (his ask, 2026-11-09): its Work batch's tokens, split
+    across the batch's items by their size guess. The batch is the first in that project
+    started once he pressed Work (work_at), else (older notes) the latest naming it."""
+    from store import same, size_score
+    text = condense(note["text"])
+    found = None
+    for b in (usage or {}).get("batches", []):
+        if b.get("project") != slug or not any(same(text, i) for i in b["items"]):
+            continue
+        if note.get("work_at"):
+            if (b.get("started") or "") >= note["work_at"]:
+                found = b
+                break
+        else:
+            found = b
+    if found is None:
+        return None
+    mine = next(i for i in found["items"] if same(text, i))
+    share = max(size_score(mine), 0.5) / sum(max(size_score(i), 0.5) for i in found["items"])
+    return round(found["tokens"] * share)
 
 
 def token_tips(usage: dict | None, guess: "TokenGuess", title=lambda slug: slug) -> list[str]:

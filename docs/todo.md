@@ -8,6 +8,7 @@ when one is finished, tick it and move it to **Done**.
 
 ## Done
 
+- [x] add a feature where each message's expected and actual token count are displayed next to the date they were sent, you can use this for your token calculation as well now, now that we just plan mode which should be more efficient
 - [x] vibenote should launch things in plan mode
 - [x] the projects tabs are too big, the notes should be copy/paste-able
 - [x] vibenote is a bit laggy when switching between projects and also hovering over notes is a bit jumpy

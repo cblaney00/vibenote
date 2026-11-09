@@ -348,12 +348,18 @@ class Store:
                 note[which] = on
         self.save()
 
-    def mark_worked(self, slug: str, note_ids: list[str]):
-        """Work started on them: the work tick comes off and the day is kept."""
+    def mark_worked(self, slug: str, note_ids: list[str], expected: dict | None = None):
+        """Work started on them: the work tick comes off and the day is kept, with the time
+        and VibeNote's token guess for each (expected), to set beside what it really used."""
+        from datetime import datetime, timezone
+        at = datetime.now(timezone.utc).isoformat()[:19]
         for note in self.all(slug):
             if note["id"] in note_ids:
                 note["work"] = False
                 note["worked"] = today()
+                note["work_at"] = at
+                if expected and note["id"] in expected:
+                    note["expected"] = expected[note["id"]]
         self.save()
 
     def mark_sent(self, slug: str, note_ids: list[str]):
@@ -472,7 +478,7 @@ class Store:
             if twin is None:
                 keep.append(n)
                 continue
-            for key in ("worked", "snap", "size", "group"):
+            for key in ("worked", "work_at", "expected", "snap", "size", "group"):
                 if key in n and key not in twin:
                     twin[key] = n[key]
             if len(n["text"]) > len(twin["text"]):

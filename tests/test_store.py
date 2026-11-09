@@ -102,9 +102,11 @@ class StoreTest(unittest.TestCase):
         s.tick("r62d", [a["id"], b["id"]], "work", True)
         again = Store(self.path)
         self.assertEqual([n["send"] for n in again.get("r62d")], [True, False])
-        again.mark_worked("r62d", [a["id"]])
+        again.mark_worked("r62d", [a["id"]], {a["id"]: 29_000})
         self.assertEqual([n["work"] for n in again.get("r62d")], [False, True])
         self.assertIn("worked", again.get("r62d")[0])
+        self.assertEqual(again.get("r62d")[0]["expected"], 29_000)  # the guess, kept
+        self.assertIn("work_at", again.get("r62d")[0])
 
     def test_size_guess(self):
         self.assertEqual(size_label(size_score("fix the typo in the title")), "Small")

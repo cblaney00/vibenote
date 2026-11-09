@@ -88,3 +88,53 @@ class TokenTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GuessedUsedTest(unittest.TestCase):
+    """Each worked-on note: VibeNote's guess beside what it really used (2026-11-09)."""
+
+    def batch(self, started, items, tokens, plan=False, project="r62d"):
+        return {"items": items, "tokens": tokens, "started": started, "project": project,
+                "plan": plan}
+
+    def test_plan_mode_is_noted(self):
+        with tempfile.TemporaryDirectory() as d:
+            chat = Path(d) / "-home-x-projects-r62d" / "a.jsonl"
+            chat.parent.mkdir()
+            lines = [{"type": "user", "timestamp": "2026-11-09T01:00:00Z",
+                      "permissionMode": "plan", "message": {
+                          "content": sender.WORK_START + ".\n\nThe items:\n1. fix the typo"}},
+                     reply("2026-11-09T01:02:00Z", 1000, "m1")]
+            chat.write_text("\n".join(json.dumps(x) for x in lines))
+            [b] = sender.collect_usage(Path(d))["batches"]
+        self.assertTrue(b["plan"])
+
+    def test_used_is_split_by_size(self):
+        items = ["fix the typo", "add a new level with a boss"]
+        usage = {"batches": [self.batch("2026-11-09T01:00:01Z", items, 10_000)]}
+        small, big = (size_score(i) for i in items)
+        note = {"text": "fix the typo", "work_at": "2026-11-09T01:00:00"}
+        self.assertEqual(sender.actual_tokens(note, "r62d", usage),
+                         round(10_000 * small / (small + big)))
+        self.assertIsNone(sender.actual_tokens(note, "glade", usage))  # another project
+
+    def test_used_picks_the_batch_after_work(self):
+        usage = {"batches": [self.batch("2026-11-01T01:00:00Z", ["fix the typo"], 500),
+                             self.batch("2026-11-09T01:00:01Z", ["fix the typo"], 900),
+                             self.batch("2026-11-10T01:00:00Z", ["fix the typo"], 700)]}
+        self.assertEqual(sender.actual_tokens(
+            {"text": "fix the typo", "work_at": "2026-11-09T01:00:00"}, "r62d", usage), 900)
+        # an older note with no time: the latest batch naming it
+        self.assertEqual(sender.actual_tokens({"text": "fix the typo"}, "r62d", usage), 700)
+
+    def test_guess_learns_from_plan_mode_once_there_are_enough(self):
+        old = [self.batch("2026-11-01T01:00:00Z", ["fix the typo"], 10_000)] * 3
+        planned = [self.batch("2026-11-07T01:00:00Z", ["fix the typo"], 2_000, plan=True)] * 2
+        points = size_score("fix the typo")
+        guess = sender.TokenGuess({"batches": old + planned})
+        self.assertFalse(guess.plan_mode)  # 2 is not enough yet: all batches count
+        self.assertAlmostEqual(guess.per_point, 10_000 / points)
+        guess = sender.TokenGuess({"batches": old + planned * 2})
+        self.assertTrue(guess.plan_mode)
+        self.assertAlmostEqual(guess.per_point, 2_000 / points)
+        self.assertAlmostEqual(guess.per_project["r62d"], 2_000 / points)
