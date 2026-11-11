@@ -257,6 +257,9 @@ class VibeNote(tk.Tk):
         # "Summary" on a project page, "← Back" on the others
         self.page_link = SmallButton(count_row, self.f_small, self._page_link, ACCENT)
         self.page_link.pack(side="left", padx=(14, 0))
+        # "New chat": a plain Claude chat on the project, no notes (his ask, 2026-11-10)
+        self.new_chat_btn = SmallButton(count_row, self.f_small, self._new_chat, ACCENT)
+        self.new_chat_btn.pack(side="left", padx=(10, 0))
         self.view = None  # None: the project's notes; else "usage", "find" or "summary"
         self.later_open = False  # the Later box starts folded (his pick, 2026-11-02)
 
@@ -604,6 +607,19 @@ class VibeNote(tk.Tk):
         else:
             self.show(None)
 
+    def _new_chat(self):
+        """A new terminal with a fresh Claude chat on the project, in plan mode, with none of
+        VibeNote's notes (his ask, 2026-11-10; his picks: beside Summary, plan mode)."""
+        p = self.current
+        if p is None:
+            return
+        try:
+            sender.new_chat(p)
+        except OSError as err:
+            self.say(f"Couldn't open Claude: {err.strerror or err}", ACCENT)
+            return
+        self.say(f"✓ Opening a new Claude chat on {p.title}.", ACCENT)
+
     def _draw_page(self, keep_scroll=False):
         """Build the page out of sight and show it once its notes are wrapped: drawn in the
         open, it showed half-built and then the notes jumped as they re-wrapped (2026-11-06)."""
@@ -678,12 +694,14 @@ class VibeNote(tk.Tk):
         back = f"← Back to {self.current.title}" if self.current else "← Back"
         if self.view:
             self.page_link.set(back)
+            self.new_chat_btn.set("")
             {"usage": self._draw_usage, "find": self._draw_find,
              "summary": self._draw_summary}[self.view]()
             if not keep_scroll:
                 self.canvas.yview_moveto(0)
             return
         self.page_link.set("Summary ›" if self.current else "")
+        self.new_chat_btn.set("New chat ›" if self.current and not self.lando else "")
         p = self.current
         if p is None:
             self.title_label.configure(text="No projects yet")

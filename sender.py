@@ -160,6 +160,12 @@ def open_new_chat(project: Project, text: str, fresh: bool = False):
         stderr=subprocess.DEVNULL)
 
 
+def new_chat(project: Project):
+    """The "New chat" button: a fresh chat on the project, started the way `vibe` does, with
+    no notes from VibeNote (open_chat.sh reads an empty message as that)."""
+    open_new_chat(project, "", fresh=True)
+
+
 def add_to_list(project: Project, notes: list[str]) -> Path:
     """Send: the notes go on the bottom of the project's to-do list. No Claude, no tokens."""
     return project.add_to_todo(notes)

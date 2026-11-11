@@ -24,7 +24,12 @@ kind=$(field kind)
 shared=$(field shared)
 [ -n "$shared" ] && [ -n "$GD_GUARD_HOOKS" ] && git config core.hooksPath "$GD_GUARD_HOOKS"
 
-echo "Opening Claude on $title with your notes from VibeNote."
+if [ -n "$msg" ]; then
+  echo "Opening Claude on $title with your notes from VibeNote."
+else
+  echo "Opening a new Claude chat on $title."
+  fresh=fresh  # the New chat button: never carry on the last chat
+fi
 echo "(If it asks for your password, type it and press Enter.)"
 echo
 
@@ -70,6 +75,17 @@ included. Read docs/style.md before changing anything he will see, and log every
 look-and-feel call he makes in its direction log (its \"Look and feel\" rules)."
 fi
 
+if [ -n "$msg" ]; then
+  opener="He opened this chat by sending notes
+from his VibeNote app; here they are:
+
+$msg"
+else
+  opener="He opened this chat with VibeNote's New chat
+button and hasn't said what he wants yet. Read up, then ask him in one short line what he'd
+like to do."
+fi
+
 prompt="$(cat "$SESSION_RULES")
 
 --- THIS SESSION ---
@@ -81,8 +97,5 @@ $about
 $team
 
 It already exists. Read its CLAUDE.md and anything in docs/ before you do anything else,
-and look at the git log to see where it was left. He opened this chat by sending notes
-from his VibeNote app; here they are:
-
-$msg"
+and look at the git log to see where it was left. $opener"
 run "$prompt"

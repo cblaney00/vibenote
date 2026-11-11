@@ -8,6 +8,7 @@ when one is finished, tick it and move it to **Done**.
 
 ## Done
 
+- [x] there should be a button in vibenote in each project to just start a new chat in that project without the vibenote script and organization
 - [x] make vibenote, lando mode where he doesnt have any functionality when it comes to sending messages to claude but it has all the helpful UI interface. he prefers to interact with claude directly but he has been surprised at the other functionalities of this app
 - [x] vibe notes notes need to expand a larger text box so i dont have to right arrow key all the way to the most recently typed letter if it was a partially done note that hasnt been sent
 - [x] add a feature where each message's expected and actual token count are displayed next to the date they were sent, you can use this for your token calculation as well now, now that we just plan mode which should be more efficient

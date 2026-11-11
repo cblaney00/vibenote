@@ -60,6 +60,13 @@ expired, so it would all be read in again at full price); never while the chat i
 In an open chat it types `/clear` first; else `open_chat.sh … fresh` starts a new chat
 instead of resuming the last. The token warning says when and why.
 
+**New chat** (his ask, 2026-11-10: "start a new chat in that project without the vibenote
+script and organization"; his picks: a "New chat ›" small button beside "Summary ›", plan
+mode). `_new_chat` → `sender.new_chat` → `open_new_chat(project, "", fresh=True)`: always a
+new kitty with a fresh chat, even if one is open; no notes, no token warning. `open_chat.sh`
+reads an empty message as this: it never resumes (`-c`) and the prompt ends "hasn't said
+what he wants yet ... ask him". Hidden in Lando mode and on the usage/find/summary views.
+
 **Organize** (his ask, 2026-10-30: "figure out which changes will take the most and least
 tokens"): a button left of Send. His picks: a free rough guess (no Claude), and sort + label.
 It sorts the waiting and the sent notes smallest first and tags each Small / Medium / Big
