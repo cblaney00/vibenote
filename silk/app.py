@@ -122,19 +122,20 @@ def main():
             mini = shown[0]
 
             def size():
-                return mini.width(), int(mini.property("wantHeight"))
+                return 370, int(mini.property("wantHeight"))
 
             # the desktop decides a window's size, and puts back one it remembers a moment after
             # the window appears: tell it again whenever the two differ (a few times at most)
             fixes = [0]
 
             def drifted(*_):
-                if mini.height() != size()[1] and fixes[0] < 10:
+                if (mini.width(), mini.height()) != size() and fixes[0] < 10:
                     fixes[0] += 1
                     QTimer.singleShot(80, lambda: place(size, 3))
 
             mini.wantHeightChanged.connect(drifted)
             mini.heightChanged.connect(drifted)
+            mini.widthChanged.connect(drifted)
         else:
             def size():
                 return 1120, 780
