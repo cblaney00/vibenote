@@ -48,8 +48,19 @@ Still dim for his eyes: emerald and copper, cream text, never white.
    always centred), Organize (sizes, groups, token totals), Tick all (`TickAllRow.qml`),
    section Send/Work words, Move menu (`PopMenu.qml`, right-click), New chat, snapshot line
    on hover, guessed/used on dates. `sender.usage_after` is shared with Tk.
-3. Still to do: Find, Summary, usage page and tips, copy text, Lando mode and its mini
-   player, one copy at a time.
-4. **Switch-over** (a config change, for Lando to approve): the package's Python gets
-   `pyqt6` and copies `silk/`, and `vibenote` starts the Silk window. He asks via `vibe` →
-   "Change or fix something on your computer". Until then the menu VibeNote is the Tk one.
+3. (2026-11-12, done) The rest: Find (Ctrl+F), Summary (with "Copy the open ones"), Claude
+   usage + tips (`InfoPage.qml`: lines from `bridge.info`; "Claude usage ›" / "Tips ›" under
+   the sign; a refresh line is clicked to type a new time), notes copyable (read-only
+   `TextEdit`s; a click without dragging still edits), the ✦/✧ motion switch
+   (`settings["motion"]`, shared with Tk), Lando mode on by itself (`sender.LANDO`), one
+   copy at a time (`sender.close_other_copies`, Tk and Silk both; Python processes only, so
+   it never kills the shell or nix that started it). Not carried over: the snapshot details
+   pop-up (the hover line shows the snapshot instead).
+4. **Switch-over**. In this folder it is done: `main.py`, started the normal way, `execv`s
+   `silk/app.py` whenever PyQt6 is importable and `silk/` is there (`--tk` forces the old
+   window; the flag modes `--collect-usage`, `--live-usage`, `--bar` stay in main.py). So
+   `run.sh` (dev shell) already opens Silk. The **installed** app (dock, menu) stays Tk until
+   the config's `pkgs/vibenote` (a config change; he asks via `vibe` → "Change or fix
+   something on your computer"): its Python gets the same `pyqt6` the vibe-python dev shell
+   has (with Qt Quick, Quick 3D, Effects, Shapes), and `installPhase` also copies `silk/`
+   (without `__pycache__`) and `assets/`. Nothing else in the config changes.

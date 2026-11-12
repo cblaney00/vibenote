@@ -307,6 +307,10 @@ Look (his calls, in order):
   graphics card**; silk you can touch, notes with weight, a living city (not sounds). This
   is the **Silk window** (`silk/`, `./run-silk.sh`), built in steps: plan, progress and how
   it works in **docs/silk-rebuild.md** (read it before working on silk/).
+- 2026-11-12, later: "the dock still opens the old version of vibenote". His pick: finish
+  Silk first, then switch. Silk now has everything the Tk window has (steps 2–3 in
+  docs/silk-rebuild.md), and `main.py` opens Silk wherever PyQt6 is there; the dock opens
+  Silk once the config package has PyQt6 and `silk/` (step 4).
 Ask him before changing the look.
 
 **Ticks** (his ask): each waiting note has a **Send** tick (terracotta, new notes start ticked)

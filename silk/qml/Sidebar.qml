@@ -34,7 +34,22 @@ Item {
         }
     }
 
+    Text {  // the motion switch: ✦ moving, ✧ still (his pick, 2026-11-12)
+        anchors { right: smallBtn.left; rightMargin: 14; verticalCenter: brand.verticalCenter }
+        text: bridge.motion ? "✦" : "✧"
+        color: motionArea.containsMouse ? C.peach : bridge.motion ? C.accent : C.faded
+        font.pixelSize: 19
+        MouseArea {
+            id: motionArea
+            anchors.fill: parent
+            anchors.margins: -6
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: bridge.toggleMotion()
+        }
+    }
     Text {  // shrink to the mini player (his ask, 2026-11-12)
+        id: smallBtn
         anchors { right: parent.right; rightMargin: 18; verticalCenter: brand.verticalCenter }
         text: "◱"
         color: smallArea.containsMouse ? C.peach : C.faded
@@ -248,6 +263,26 @@ Item {
             text: bridge.sign.why
             color: C.faded
             font { family: win.serif; pixelSize: 14 }
+        }
+        Row {  // the usage page and its tips (his picks, 2026-11-02 and 11-04)
+            spacing: 16
+            Repeater {
+                model: [["Claude usage ›", false], ["Tips ›", true]]
+                delegate: Text {
+                    required property var modelData
+                    text: modelData[0]
+                    color: ua.containsMouse ? C.peach : C.accent
+                    font { family: win.serif; pixelSize: 15 }
+                    MouseArea {
+                        id: ua
+                        anchors.fill: parent
+                        anchors.margins: -5
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: win.showUsage(modelData[1])
+                    }
+                }
+            }
         }
         Item { width: 1; height: 6 }
         LiveBars { width: parent.width }

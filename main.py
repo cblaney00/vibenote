@@ -2921,29 +2921,9 @@ def draw_live(box, f_small, f_section, width, bg):
 
 
 def close_older_copies() -> int:
-    """One VibeNote at a time (2026-11-02): an older copy left open after an update kept the
-    old code, so its token warning still came up in the screen's corner. Opening VibeNote
-    closes any other copy he has running; notes are saved as he goes, so nothing is lost."""
-    import signal
-    me = os.getpid()
-    closed = 0
-    for proc in Path("/proc").iterdir():
-        if not proc.name.isdigit() or int(proc.name) == me:
-            continue
-        try:
-            if proc.stat().st_uid != os.getuid():
-                continue
-            args = (proc / "cmdline").read_bytes().split(b"\0")
-        except OSError:
-            continue
-        if (any(a.endswith(b"vibenote/main.py") for a in args)
-                and not {b"--collect-usage", b"--live-usage", b"--bar"} & set(args)):
-            try:
-                os.kill(int(proc.name), signal.SIGTERM)
-                closed += 1
-            except OSError:
-                pass
-    return closed
+    """One VibeNote at a time (his catch, 2026-11-02): an older copy left open after an update
+    kept the old code. Notes are saved as he goes, so nothing is lost."""
+    return sender.close_other_copies()
 
 
 def centre_on(app, win):
@@ -3065,6 +3045,14 @@ if __name__ == "__main__":
         # --toggle (the top bar's click): a second click closes the open VibeNote
         if close_older_copies() and "--toggle" in sys.argv:
             sys.exit()
+        # The Silk window (silk/, on the graphics card) is VibeNote now, wherever it can run:
+        # it needs PyQt6. Until the installed app has it, this stays the Tk window.
+        # --tk opens the Tk one anyway.
+        import importlib.util
+        silk = Path(__file__).resolve().parent / "silk" / "app.py"
+        if "--tk" not in sys.argv and silk.exists() and importlib.util.find_spec("PyQt6"):
+            os.execv(sys.executable, [sys.executable, str(silk)]
+                     + [a for a in sys.argv[1:] if a != "--toggle"])
         lando = "--lando" in sys.argv or sender.LANDO
         view = sys.argv[sys.argv.index("--view") + 1] if "--view" in sys.argv[:-1] else None
         small = ("--mini" in sys.argv or start_small(Store(), lando)) and "--full" not in sys.argv

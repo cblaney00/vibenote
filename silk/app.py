@@ -17,6 +17,7 @@ from PyQt6.QtCore import QTimer, QUrl, qInstallMessageHandler  # noqa: E402
 from PyQt6.QtGui import QGuiApplication, QIcon  # noqa: E402
 from PyQt6.QtQml import QQmlApplicationEngine  # noqa: E402
 
+import sender  # noqa: E402
 from bridge import Bridge  # noqa: E402
 
 # Colours, the same as the Tk app's (emerald silk, copper and peach; dim for his eyes)
@@ -81,11 +82,14 @@ def main():
     app = QGuiApplication(sys.argv)
     app.setApplicationName("VibeNote")
     app.setDesktopFileName("vibenote")
-    app.setWindowIcon(QIcon(str(HERE.parent / "assets" / "icon.svg")))
+    icon = HERE.parent / "assets" / "icon.svg"
+    if icon.exists():
+        app.setWindowIcon(QIcon(str(icon)))
     engine = QQmlApplicationEngine()
     for d in qml_dirs():
         engine.addImportPath(d)
-    bridge = Bridge(lando="--lando" in sys.argv)
+    sender.close_other_copies()  # one VibeNote at a time (his catch, 2026-11-02)
+    bridge = Bridge(lando="--lando" in sys.argv or sender.LANDO)
     if os.environ.get("VIBENOTE_OPEN"):  # for testing: open on this project
         bridge.pick(os.environ["VIBENOTE_OPEN"])
     ctx = engine.rootContext()
@@ -100,13 +104,10 @@ def main():
     switching = [False]
 
     def show(which):
-        """The mini player and the whole app hand over to each other; Usage and Tips open
-        the Tk VibeNote's pages for now."""
-        if which == "usage":
-            subprocess.Popen([sys.executable, str(HERE.parent / "main.py"), "--full",
-                              "--view", which] + (["--lando"] if bridge.lando else []),
-                             start_new_session=True)
-            return
+        """The mini player and the whole app hand over to each other; "usage" and "tips"
+        open the whole app on the usage page."""
+        if which in ("usage", "tips"):
+            bridge.setView("usage")
         name = "Mini.qml" if which == "mini" else "Main.qml"
         before = list(engine.rootObjects())
         engine.load(QUrl.fromLocalFile(str(HERE / "qml" / name)))
@@ -143,6 +144,9 @@ def main():
 
     bridge.wantWindow.connect(show)
     small = ("--mini" in sys.argv or bridge.startSmall) and "--full" not in sys.argv
+    view = sys.argv[sys.argv.index("--view") + 1] if "--view" in sys.argv[:-1] else None
+    if view in ("usage", "tips") and not small:
+        bridge.setView("usage")
     show("mini" if small else "notes")
     if not engine.rootObjects():
         sys.exit(1)

@@ -4,6 +4,7 @@ Everything here goes through store.py, projects.py and sender.py, the same as th
 so both windows can be used on the same notes.
 """
 
+import html
 import threading
 from datetime import date, datetime
 
@@ -11,7 +12,7 @@ from PyQt6.QtCore import QObject, QTimer, pyqtProperty, pyqtSignal, pyqtSlot
 
 import projects
 import sender
-from store import Store, size_score
+from store import Store, condense, group_notes, size_score, tokens_in
 
 
 def nice_date(iso):
@@ -33,6 +34,7 @@ class Bridge(QObject):
     said = pyqtSignal(str)
     busyChanged = pyqtSignal()
     layoutChanged = pyqtSignal()
+    viewChanged = pyqtSignal()
     _workEnded = pyqtSignal(str)  # from the side thread that hands the items to Claude
     _learned = pyqtSignal(object, bool)  # usage re-read on a side thread; True: say so
 
@@ -49,6 +51,8 @@ class Bridge(QObject):
         self._editing = False
         self._found = None
         self._busy = False  # handing a Work batch to Claude
+        self._view = ""  # "" (the notes), "usage", "find" or "summary"
+        self._query = ""
         self._workEnded.connect(self._work_ended)
         self._learned.connect(self._apply_learned)
         # learn again from Claude's chats every 5 minutes, like the Tk app
@@ -339,6 +343,20 @@ class Bridge(QObject):
         level, why = sender.good_time(self.guess)
         return {"level": level, "why": why}
 
+    motionChanged = pyqtSignal()
+
+    @pyqtProperty(bool, notify=motionChanged)
+    def motion(self):
+        """Slow motion with an off switch (his pick, 2026-11-12); shared with the Tk app."""
+        return self.store.settings.get("motion", True) is not False
+
+    @pyqtSlot()
+    def toggleMotion(self):
+        self.store.settings["motion"] = not self.motion
+        self.store.save()
+        self.motionChanged.emit()
+        self.said.emit("Motion on" if self.motion else "Motion off: everything holds still")
+
     @pyqtProperty(bool, notify=smallChanged)
     def startSmall(self):
         """Open as the mini player (his ask, 2026-11-12, in every VibeNote): his setting,
@@ -363,6 +381,9 @@ class Bridge(QObject):
     @pyqtSlot(str)
     def pick(self, slug):
         self.current = next((p for p in self.projects if p.slug == slug), self.current)
+        if self._view:
+            self._view = ""
+            self.viewChanged.emit()
         self._changed()
 
     @pyqtSlot(bool)
@@ -632,3 +653,191 @@ class Bridge(QObject):
         self.busyChanged.emit()
         self.said.emit(msg)
         self._changed()
+
+    # --- the other pages: Claude usage + tips, Find, Summary ------------------------
+    # Each is a list of lines for InfoPage.qml: {text, style, slug?, email?, rich?}.
+    # Styles: line, faded, good, warn, head, small, link, copy (a button).
+
+    @pyqtProperty(str, notify=viewChanged)
+    def view(self):
+        return self._view
+
+    @pyqtSlot(str)
+    def setView(self, view):
+        if view == "summary" and self.current is None:
+            return
+        self._view = view if view in ("usage", "find", "summary") else ""
+        self.viewChanged.emit()
+
+    @pyqtSlot(str)
+    def setQuery(self, text):
+        self._query = text
+        self.viewChanged.emit()
+
+    def _title_of(self, slug):
+        if slug == "computer":
+            return "Your computer (setup)"
+        return next((p.title for p in self.projects if p.slug == slug), slug)
+
+    @pyqtProperty("QVariantMap", notify=viewChanged)
+    def info(self):
+        try:
+            return {"usage": self._usage_page, "find": self._find_page,
+                    "summary": self._summary_page}.get(self._view, lambda: {})()
+        except (KeyError, ValueError, TypeError) as err:  # never leave him on a broken page
+            return {"title": "Something went wrong", "counts": str(err), "lines": []}
+
+    def _usage_page(self):
+        """Claude usage, broken down, for both accounts (his ask, 2026-11-02), and tips for
+        lighter tokens at the bottom (his pick, 2026-11-04)."""
+        t = sender.short_tokens
+        usage = self.guess.usage or {}
+        report = sender.usage_report(usage, sender.load_accounts())
+        try:
+            updated = datetime.fromisoformat(usage["updated"]).astimezone().strftime("%-d %b %H:%M")
+        except (KeyError, ValueError):
+            updated = "never"
+        lines = []
+
+        def add(text, style="line", **kw):
+            lines.append({"text": text, "style": style, **kw})
+
+        if not usage:
+            add("No usage learned yet. It appears after Claude finishes a Work batch.", "faded")
+        else:
+            logged = next((a for a in report["accounts"] if a["logged_in"]), None)
+            if report["use_now"]:
+                best = next(a for a in report["accounts"] if a["name"] == report["use_now"])
+                add(f"Use {best['name']} now: its week ends sooner ({sender.refresh_text(best)}),"
+                    " and what it doesn't use is lost then.", "good")
+            if logged:
+                add(f"Logged in to Claude now: {logged['name']} ({logged['email']})", "faded")
+            if report["five_hour"]:
+                add(f"Last 5 hours: {t(usage.get('last5h', 0))} of the {t(report['five_hour'])} "
+                    f"a 5-hour window holds (learned from the "
+                    f"{len(usage.get('five_hour_fills', []))} times you hit one).")
+            now = datetime.now().astimezone()
+            for a in report["accounts"]:
+                add(f"{a['name']} · {a['email']}" + (" · logged in now" if a["logged_in"] else ""),
+                    "head")
+                left = a["end"] - now
+                add(f"Week refreshes {sender.refresh_text(a)}"
+                    + (" (a guess)" if a.get("guess") else "")
+                    + f" · in {left.days} d {left.seconds // 3600} h   ·   Change", "link",
+                    email=a["email"])
+                add(f"Used this week: {t(a['used'])} · your pace: {t(a['pace'])} a day")
+                add(f"At this pace by the refresh: {t(a['projected'])}")
+                if a["weekly_learned"]:
+                    limit_text = f"its weekly limit, {t(a['limit'])}"
+                elif a["limit"]:
+                    limit_text = (f"at least {t(a['limit'])}: the most you've used in a week "
+                                  "without hitting the limit, so the real one is bigger")
+                else:
+                    limit_text = None
+                if limit_text:
+                    add(f"A week can hold {limit_text}.", "faded")
+                    state = "On track" if a["on_track"] else "Off track: you'll run out first"
+                    add(f"{state} · to last the week: {t(a['daily_budget'])} a day for the "
+                        f"{max(a['days_left'], 0):.1f} days left",
+                        "good" if a["on_track"] else "warn")
+                if a["projects"]:
+                    parts = sorted(a["projects"].items(), key=lambda kv: -kv[1])
+                    add("By project: " + " · ".join(f"{self._title_of(k)} {t(v)}"
+                                                    for k, v in parts), "faded")
+                if a["days"]:
+                    add("By day: " + " · ".join(f"{k} {t(v)}" for k, v in a["days"].items()),
+                        "faded")
+            add("Which account was logged in is only known from 2 Nov; before that it counts "
+                "as Account 2. The numbers get better as VibeNote sees more.", "small")
+        add("Tips for lighter tokens · learned from your chats", "head", tips=True)
+        for tip in sender.token_tips(usage, self.guess, self._title_of, direct=self.lando):
+            add("•  " + tip)
+        return {"title": "Claude usage",
+                "counts": f"Tokens Claude wrote, from your chats · updated {updated}",
+                "lines": lines}
+
+    @pyqtSlot(str, str, result=str)
+    def setRefresh(self, email, text):
+        """He typed when an account's week refreshes ("Thu 11pm"). Returns what to say."""
+        when = sender.parse_refresh(text)
+        if when is None:
+            return "Couldn't read that; try like \u201cThu 11pm\u201d."
+        accounts = sender.load_accounts()
+        for a in accounts:
+            if a["email"] == email:
+                a.update(when, guess=False)
+                name = a["name"]
+        sender.save_accounts(accounts)
+        self.viewChanged.emit()
+        return f"✓ {name} refreshes {sender.refresh_text({**when})}"
+
+    def _find_page(self):
+        """Every note in every project with all these words (Ctrl+F, his ask)."""
+        query = self._query.strip().lower()
+        if not query:
+            return {"title": "Find", "counts": "Type to find notes in every project · Esc to go back",
+                    "lines": []}
+        words = query.split()
+        mark = {"waiting": "waiting", "sent": "on its list", "done": "done", "later": "in Later",
+                "review": "with Lando"}
+        lines, found = [], 0
+        for p in self.projects:
+            for n in self.store.all(p.slug):
+                snap = sender.snapshot_line(n["snap"]) if n.get("snap") else ""
+                if not all(w in (n["text"] + " " + snap).lower() for w in words):
+                    continue
+                found += 1
+                if found > 200:
+                    continue
+                lit = html.escape(n["text"])
+                for w in sorted(set(words), key=len, reverse=True):  # light up his words
+                    lit = _light(lit, html.escape(w))
+                lines.append({"text": f"{p.title} · {mark.get(n['status'], n['status'])}",
+                              "style": "where", "slug": p.slug, "note": n["id"]})
+                lines.append({"text": lit, "style": "hit", "rich": True, "slug": p.slug,
+                              "note": n["id"]})
+                if snap:
+                    lines.append({"text": snap, "style": "small", "slug": p.slug,
+                                  "note": n["id"]})
+        return {"title": "Find", "counts": f"{found} found · click one to open its project",
+                "lines": lines}
+
+    def _summary_page(self):
+        """Everything ever noted for this project, condensed (his ask, 2026-11-02): grouped,
+        each said shorter, open ones first, and the open ones ready to copy for Claude."""
+        p = self.current
+        notes = self.store.all(p.slug)
+        open_notes = [n for n in notes if n["status"] in ("waiting", "sent")]  # not Later
+        mine = " ".join(n["text"] for n in open_notes)
+        self._short = "\n".join(f"- {condense(n['text'])}" for n in open_notes)
+        lines = []
+        if open_notes:
+            lines.append({"text": "Copy the open ones for Claude", "style": "copy"})
+        mark = {"waiting": "•", "sent": "→", "done": "✓", "later": "◦", "review": "✓"}
+        groups = group_notes([dict(n) for n in notes])
+        groups.sort(key=lambda g: (g[0] == "On their own", -len(g[1])))
+        for heading, members in groups:
+            open_n = sum(m["status"] not in ("done", "review") for m in members)
+            lines.append({"text": f"{heading} · {len(members)} notes, {open_n} open",
+                          "style": "group"})
+            for m in sorted(members, key=lambda m: m["status"] in ("done", "review")):
+                lines.append({"text": f"{mark.get(m['status'], '•')}  {condense(m['text'])}",
+                              "style": "faded" if m["status"] in ("done", "review") else "line"})
+        return {"title": f"{p.title}: summary",
+                "counts": f"{len(notes)} notes · {len(open_notes)} open · for Claude: "
+                          f"~{tokens_in(mine)} → ~{tokens_in(self._short)} tokens",
+                "lines": lines}
+
+    @pyqtSlot()
+    def copySummary(self):
+        from PyQt6.QtGui import QGuiApplication
+        QGuiApplication.clipboard().setText(getattr(self, "_short", ""))
+        self.said.emit("✓ Copied: paste it into a Claude chat")
+
+
+def _light(text, word):
+    """Wrap each match of word (ignoring case) in a lit span, outside of tags."""
+    import re
+    return re.sub("(" + re.escape(word) + ")(?![^<]*>)",
+                  r'<span style="background-color:#173027;color:#d79a74">\1</span>', text,
+                  flags=re.IGNORECASE)

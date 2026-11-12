@@ -22,7 +22,7 @@ Window {
     property var ripples: [Qt.vector4d(0, 0, -10, 0), Qt.vector4d(0, 0, -10, 0),
                            Qt.vector4d(0, 0, -10, 0), Qt.vector4d(0, 0, -10, 0)]
     property int nextRipple: 0
-    readonly property bool awake: visibility !== Window.Minimized
+    readonly property bool awake: bridge.motion && visibility !== Window.Minimized
                                   && visibility !== Window.Hidden
                                   && (active || hover.hovered)
     readonly property string serif: "Georgia"
@@ -46,6 +46,22 @@ Window {
         else notes.findWanted()
     }
     Timer { id: flashEnd; interval: 1600; onTriggered: win.flashId = "" }
+
+    // the other pages: Claude usage, Find (Ctrl+F, his ask), Summary
+    readonly property bool paged: bridge.view !== ""
+    function showUsage(tips) {
+        bridge.setView("usage")
+        if (tips) Qt.callLater(function () { if (infoPage.item) { infoPage.item.toTips = true; infoPage.item.goTips() } })
+    }
+    Shortcut {
+        sequence: "Ctrl+F"
+        onActivated: { bridge.setView("find"); findIn.text = ""; bridge.setQuery(""); findIn.forceActiveFocus() }
+    }
+    Shortcut {
+        sequence: "Esc"
+        enabled: win.paged
+        onActivated: bridge.setView("")
+    }
 
     function say(text) {
         status.text = text
@@ -111,7 +127,7 @@ Window {
                 y: 56
                 width: parent.width - page.pad * 2 - tabsSpace
                 readonly property real tabsSpace: tabs.width + 20
-                text: bridge.page.title
+                text: win.paged ? bridge.info.title || "" : bridge.page.title
                 color: C.ink
                 elide: Text.ElideRight
                 font { family: win.serif; pixelSize: 38; bold: true }
@@ -126,7 +142,7 @@ Window {
                 id: tabs
                 anchors { right: parent.right; rightMargin: page.pad }
                 y: 66
-                visible: bridge.page.title !== "No projects yet"
+                visible: bridge.page.title !== "No projects yet" && !win.paged
             }
 
             Row {
@@ -135,13 +151,32 @@ Window {
                 spacing: 12
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: bridge.page.counts
+                    text: win.paged ? bridge.info.counts || "" : bridge.page.counts
                     color: C.faded
                     font { family: win.serif; pixelSize: 16 }
                 }
+                Repeater {  // Summary › / ← Back, like the Tk app
+                    model: [win.paged ? "← Back" : "Summary ›"]
+                    delegate: Text {
+                        required property var modelData
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: bridge.page.title !== "No projects yet"
+                        text: modelData
+                        color: sm.containsMouse ? C.peach : C.accent
+                        font { family: win.serif; pixelSize: 16 }
+                        MouseArea {
+                            id: sm
+                            anchors.fill: parent
+                            anchors.margins: -6
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: bridge.setView(win.paged ? "" : "summary")
+                        }
+                    }
+                }
                 Text {  // a fresh Claude chat on the project, no notes (his ask, 2026-11-10)
                     anchors.verticalCenter: parent.verticalCenter
-                    visible: !bridge.isLando && bridge.page.sections !== undefined && bridge.page.title !== "No projects yet"
+                    visible: !bridge.isLando && !win.paged && bridge.page.title !== "No projects yet"
                     text: "New chat ›"
                     color: nc.containsMouse ? C.peach : C.accent
                     font { family: win.serif; pixelSize: 16 }
@@ -187,6 +222,31 @@ Window {
                 id: entry
                 anchors { left: parent.left; right: parent.right; top: horizon.bottom }
                 anchors { leftMargin: page.pad; rightMargin: page.pad; topMargin: 6 }
+                visible: !win.paged || bridge.view === "find"
+                opacity: win.paged ? 0 : 1
+            }
+            Rectangle {  // the Find box sits where the note box is
+                visible: bridge.view === "find"
+                anchors.fill: entry
+                radius: 12
+                color: Qt.rgba(0.04, 0.09, 0.07, 0.9)
+                border.color: C.accent
+                TextInput {
+                    id: findIn
+                    anchors { fill: parent; leftMargin: 18; rightMargin: 18 }
+                    verticalAlignment: TextInput.AlignVCenter
+                    color: C.ink
+                    font { family: win.serif; pixelSize: 19 }
+                    onTextChanged: bridge.setQuery(text)
+                    Keys.onEscapePressed: bridge.setView("")
+                }
+                Text {
+                    anchors { left: parent.left; leftMargin: 18; verticalCenter: parent.verticalCenter }
+                    visible: findIn.text === ""
+                    text: "Find in every project…"
+                    color: C.faded
+                    font: findIn.font
+                }
             }
 
             ListView {
@@ -194,7 +254,7 @@ Window {
                 anchors { left: parent.left; right: parent.right; top: entry.bottom; bottom: bar.top }
                 anchors { leftMargin: page.pad - 6; rightMargin: page.pad - 6; topMargin: 14; bottomMargin: 8 }
                 clip: true
-                visible: bridge.layout === "list"
+                visible: bridge.layout === "list" && !win.paged
                 spacing: 6
                 cacheBuffer: 600
                 maximumFlickVelocity: 4000
@@ -296,7 +356,7 @@ Window {
                 id: otherView
                 anchors { left: parent.left; right: parent.right; top: entry.bottom; bottom: bar.top }
                 anchors { leftMargin: page.pad - 6; rightMargin: page.pad - 6; topMargin: 14; bottomMargin: 8 }
-                active: bridge.layout !== "list"
+                active: bridge.layout !== "list" && !win.paged
                 sourceComponent: ({ board: boardC, sky: skyC, timeline: timelineC, compact: compactC })[bridge.layout] || null
                 Component { id: boardC; Board {} }
                 Component { id: skyC; Sky {} }
@@ -304,6 +364,14 @@ Window {
                 Component { id: compactC; LineView { diary: false } }
                 onLoaded: { item.opacity = 0; viewIn.target = item; viewIn.restart() }
                 NumberAnimation { id: viewIn; property: "opacity"; to: 1; duration: 350; easing.type: Easing.OutCubic }
+            }
+
+            Loader {
+                id: infoPage
+                anchors { left: parent.left; right: parent.right; top: bridge.view === "find" ? entry.bottom : horizon.bottom; bottom: bar.top }
+                anchors { leftMargin: page.pad - 6; rightMargin: page.pad - 6; topMargin: 14; bottomMargin: 8 }
+                active: win.paged
+                sourceComponent: InfoPage {}
             }
 
             Item {
@@ -322,6 +390,7 @@ Window {
                 }
                 SilkButton {
                     id: organizeBtn
+                    visible: !win.paged
                     anchors { right: sendBtn.left; rightMargin: 12; verticalCenter: parent.verticalCenter }
                     text: "Organize"
                     enabled: bridge.page.canOrganize === true
@@ -330,7 +399,7 @@ Window {
                 SilkButton {
                     id: workBtn
                     anchors { right: parent.right; verticalCenter: parent.verticalCenter }
-                    visible: !bridge.isLando
+                    visible: !bridge.isLando && !win.paged
                     text: bridge.busy ? "Starting…"
                           : bridge.workCount ? "Work " + bridge.workCount + " · " + bridge.workTokens : "Work"
                     enabled: bridge.workCount > 0 && !bridge.busy
@@ -339,6 +408,7 @@ Window {
                 }
                 SilkButton {
                     id: sendBtn
+                    visible: !win.paged
                     anchors { right: workBtn.visible ? workBtn.left : parent.right; rightMargin: workBtn.visible ? 12 : 0; verticalCenter: parent.verticalCenter }
                     text: bridge.sendCount ? "Send " + bridge.sendCount + " ticked" : "Send"
                     enabled: bridge.sendCount > 0

@@ -25,7 +25,7 @@ Window {
     property var ripples: [Qt.vector4d(0, 0, -10, 0), Qt.vector4d(0, 0, -10, 0),
                            Qt.vector4d(0, 0, -10, 0), Qt.vector4d(0, 0, -10, 0)]
     property int nextRipple: 0
-    readonly property bool awake: visibility !== Window.Minimized
+    readonly property bool awake: bridge.motion && visibility !== Window.Minimized
                                   && visibility !== Window.Hidden
                                   && (active || hover.hovered)
     readonly property string serif: "Georgia"

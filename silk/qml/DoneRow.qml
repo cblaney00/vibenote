@@ -17,13 +17,18 @@ Item {
         color: C.accent
         font { family: win.serif; pixelSize: 16 }
     }
-    Text {
+    TextEdit {  // drag across to pick text, Ctrl+C copies
         id: label
         x: 46 + row.glow * 4
         y: 4
         width: parent.width - x - when.width - 24
         text: row.note.text
-        wrapMode: Text.Wrap
+        readOnly: true
+        selectByMouse: true
+        selectionColor: C.picked
+        selectedTextColor: C.peach
+        onActiveFocusChanged: if (!activeFocus) deselect()
+        wrapMode: TextEdit.Wrap
         color: Qt.tint(C.faded, Qt.rgba(0.86, 0.80, 0.70, row.glow * 0.5))
         font { family: win.serif; pixelSize: 16 }
     }

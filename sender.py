@@ -936,6 +936,33 @@ def usage_report(usage: dict | None, accounts: list[dict], now=None,
     return report
 
 
+def close_other_copies() -> int:
+    """Close every other VibeNote window he has open, the Tk one (main.py) or the Silk one
+    (silk/app.py), so the one he just opened is the only one. Returns how many."""
+    import signal
+    me = os.getpid()
+    closed = 0
+    for proc in Path("/proc").iterdir():
+        if not proc.name.isdigit() or int(proc.name) == me:
+            continue
+        try:
+            if proc.stat().st_uid != os.getuid():
+                continue
+            args = (proc / "cmdline").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        # only Python running VibeNote itself, not a shell or nix that started it
+        if (b"python" in os.path.basename(args[0])
+                and any(a.endswith((b"vibenote/main.py", b"silk/app.py")) for a in args)
+                and not {b"--collect-usage", b"--live-usage", b"--bar"} & set(args)):
+            try:
+                os.kill(int(proc.name), signal.SIGTERM)
+                closed += 1
+            except OSError:
+                pass
+    return closed
+
+
 def usage_after(usage: dict | None, cost: float, accounts: list[dict] | None = None) -> str:
     """For the Work warning: what this request does to the account logged in now (his
     ask: "if the session will set me off track")."""

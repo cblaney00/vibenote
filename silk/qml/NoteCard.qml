@@ -172,15 +172,33 @@ Item {
                 x: mark.width + workMark.width + 8
                 width: parent.width - x - side.width - 10
                 spacing: 4
-                Text {
+                // drag across it to pick text, Ctrl+C copies (his ask, 2026-11-06); a click
+                // without moving still edits a waiting note
+                TextEdit {
                     id: label
                     visible: !card.editing
                     width: parent.width
                     text: card.note.text
-                    wrapMode: Text.Wrap
+                    readOnly: true
+                    selectByMouse: true
+                    wrapMode: TextEdit.Wrap
+                    selectionColor: C.picked
+                    selectedTextColor: C.peach
                     color: card.note.kind === "later" || card.note.kind === "review" ? C.faded : C.ink
                     font { family: win.serif; pixelSize: card.waiting ? 19 : 17 }
-                    lineHeight: 1.12
+                    onActiveFocusChanged: if (!activeFocus) deselect()
+                    Keys.onEscapePressed: deselect()
+                    TapHandler {
+                        enabled: card.waiting
+                        onTapped: (ev) => {
+                            if (label.selectedText !== "") return
+                            var at = label.mapToItem(root, ev.position.x, ev.position.y)
+                            win.ripple(at.x, at.y, 0.5)
+                            card.startEdit()
+                        }
+                        onPressedChanged: card.press = pressed ? 1 : 0
+                    }
+                    HoverHandler { cursorShape: card.waiting ? Qt.IBeamCursor : Qt.IBeamCursor }
                 }
                 TextEdit {
                     id: editor
@@ -216,19 +234,6 @@ Item {
                         color: card.note.kind === "worked" ? C.jade : C.faded
                         font { family: win.serif; pixelSize: 14 }
                     }
-                }
-            }
-            MouseArea {
-                anchors.fill: textCol
-                enabled: card.waiting && !card.editing
-                cursorShape: card.waiting ? Qt.IBeamCursor : Qt.ArrowCursor
-                onPressed: (m) => { card.press = 1 }
-                onReleased: card.press = 0
-                onCanceled: card.press = 0
-                onClicked: (m) => {
-                    var at = mapToItem(root, m.x, m.y)
-                    win.ripple(at.x, at.y, 0.5)
-                    card.startEdit()
                 }
             }
 
