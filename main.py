@@ -2787,8 +2787,8 @@ class SnapshotDetails(tk.Toplevel):
 
 class Mini(tk.Tk):
     """The mini player (Lando's pick, 2026-11-09: "minimized almost like a miniplayer ... not
-    a lot of text by default"): the good-time dot, the two usage bars and one tip. Notes,
-    Usage and Tips open the whole app. .next says which. Since 2026-11-12 every VibeNote has
+    a lot of text by default"): the good-time dot and the two usage bars (the tip went: his
+    ask, 2026-11-12, "there should be no tips shown"). Notes and Usage open the whole app. .next says which. Since 2026-11-12 every VibeNote has
     it (his ask), with "Open small like this" to start here each time."""
 
     WIDTH = 340
@@ -2810,12 +2810,10 @@ class Mini(tk.Tk):
         self.sign.pack(fill="x")
         self.live = tk.Frame(box, bg=SIDEBAR)
         self.live.pack(fill="x", pady=(8, 0))
-        self.tip = tk.Label(box, font=self.f_small, bg=SIDEBAR, fg=FADED_INK, anchor="w",
-                            justify="left", wraplength=self.WIDTH - 40)
-        self.tip.pack(fill="x", pady=(6, 12))
+        tk.Frame(box, bg=SIDEBAR, height=10).pack()
         links = tk.Frame(box, bg=SIDEBAR)
         links.pack(anchor="w")
-        for text, view in (("Notes ›", "notes"), ("Usage ›", "usage"), ("Tips ›", "tips")):
+        for text, view in (("Notes ›", "notes"), ("Usage ›", "usage")):
             SmallButton(links, self.f_small, lambda v=view: self.open(v), ACCENT, text).pack(
                 side="left", padx=(0, 8))
         self.small = tk.Label(box, font=self.f_small, bg=SIDEBAR, anchor="w", cursor="hand2")
@@ -2837,8 +2835,6 @@ class Mini(tk.Tk):
         for w in self.live.winfo_children():
             w.destroy()
         draw_live(self.live, self.f_small, self.f_section, self.WIDTH - 40, SIDEBAR)
-        tips = sender.token_tips(guess.usage, guess, direct=self.lando)
-        self.tip.configure(text="Tip: " + tips[0] if tips else "")
         self.after(30_000, self.show)
 
     def open(self, view):
@@ -2855,14 +2851,30 @@ class Mini(tk.Tk):
         self.store.save()
         self._show_small()
 
-    def _float(self):
-        if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+    def _float(self, tries=8):
+        """Floats at its own small size: his desktop otherwise reuses the last floating size,
+        the whole app's (his catch, 2026-11-12), and places a new window itself a moment after
+        it appears, so check again until the size sticks."""
+        if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE") or not self.winfo_exists():
             return
+        self.update_idletasks()
+        want = [self.winfo_reqwidth(), self.winfo_reqheight()]
+        me = f"pid:{os.getpid()}"
         try:
-            subprocess.run(["hyprctl", "dispatch", "setfloating", f"pid:{os.getpid()}"],
-                           capture_output=True, timeout=3)
-        except (OSError, subprocess.SubprocessError):
-            pass
+            out = subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True,
+                                 timeout=3).stdout
+            now = next((c["size"] for c in json.loads(out or "[]")
+                        if c.get("pid") == os.getpid()), None)
+            if now != want:
+                for args in (["setfloating", me],
+                             ["resizewindowpixel", f"exact {want[0]} {want[1]},{me}"],
+                             ["centerwindow"]):
+                    subprocess.run(["hyprctl", "dispatch", *args], capture_output=True,
+                                   timeout=3)
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError):
+            return
+        if tries > 1:  # his desktop may put back a remembered size a moment later
+            self.after(400, lambda: self._float(tries - 1))
 
 
 def start_small(store, lando):

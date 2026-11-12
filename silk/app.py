@@ -3,6 +3,7 @@
 Run: ./run-silk.sh (from the project folder). See docs/silk-rebuild.md.
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -40,26 +41,37 @@ def qml_dirs():
     return found
 
 
-def float_on_hyprland():
-    """His desktop tiles new windows; this one floats, like the Tk VibeNote."""
+def hypr_size():
+    """This window's size as his desktop has it, or None."""
+    try:
+        out = subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, timeout=3,
+                             text=True).stdout
+        for c in json.loads(out or "[]"):
+            if c.get("pid") == os.getpid():
+                return tuple(c["size"])
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError):
+        pass
+    return None
+
+
+def place(size, tries=8):
+    """Float at w x h in the middle of the screen. His desktop places a new window itself a
+    moment after it appears, and otherwise reuses the last floating size (the whole app's,
+    which kept the mini big: his catch, 2026-11-12), so check again until it sticks."""
     if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
         return
-    me = f"pid:{os.getpid()}"
-    for args in (["setfloating", me], ["resizewindowpixel", f"exact 1120 780,{me}"],
-                 ["centerwindow"]):
-        try:
-            subprocess.run(["hyprctl", "dispatch", *args], capture_output=True, timeout=3)
-        except (OSError, subprocess.SubprocessError):
-            return
-
-
-def float_mini():
-    if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
-        try:
-            subprocess.run(["hyprctl", "dispatch", "setfloating", f"pid:{os.getpid()}"],
-                           capture_output=True, timeout=3)
-        except (OSError, subprocess.SubprocessError):
-            pass
+    w, h = size()  # read each time: the mini's height settles once its bars are in
+    now = hypr_size()
+    if now != (w, h):
+        me = f"pid:{os.getpid()}"
+        for args in (["setfloating", me], ["resizewindowpixel", f"exact {w} {h},{me}"],
+                     ["centerwindow"]):
+            try:
+                subprocess.run(["hyprctl", "dispatch", *args], capture_output=True, timeout=3)
+            except (OSError, subprocess.SubprocessError):
+                return
+    if tries > 1:  # keep checking: his desktop may put back a remembered size a moment later
+        QTimer.singleShot(400, lambda: place(size, tries - 1))
 
 
 def main():
@@ -90,7 +102,7 @@ def main():
     def show(which):
         """The mini player and the whole app hand over to each other; Usage and Tips open
         the Tk VibeNote's pages for now."""
-        if which in ("usage", "tips"):
+        if which == "usage":
             subprocess.Popen([sys.executable, str(HERE.parent / "main.py"), "--full",
                               "--view", which] + (["--lando"] if bridge.lando else []),
                              start_new_session=True)
@@ -106,7 +118,27 @@ def main():
             old.close()
             old.deleteLater()
         switching[0] = False
-        QTimer.singleShot(200, float_on_hyprland if which != "mini" else float_mini)
+        if which == "mini" and shown:
+            mini = shown[0]
+
+            def size():
+                return mini.width(), int(mini.property("wantHeight"))
+
+            # the desktop decides a window's size, and puts back one it remembers a moment after
+            # the window appears: tell it again whenever the two differ (a few times at most)
+            fixes = [0]
+
+            def drifted(*_):
+                if mini.height() != size()[1] and fixes[0] < 10:
+                    fixes[0] += 1
+                    QTimer.singleShot(80, lambda: place(size, 3))
+
+            mini.wantHeightChanged.connect(drifted)
+            mini.heightChanged.connect(drifted)
+        else:
+            def size():
+                return 1120, 780
+        QTimer.singleShot(200, lambda: place(size))
 
     bridge.wantWindow.connect(show)
     small = ("--mini" in sys.argv or bridge.startSmall) and "--full" not in sys.argv

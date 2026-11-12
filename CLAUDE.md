@@ -228,15 +228,20 @@ only tkinter (no Pillow), and only the five listed source files, so new code goe
 
 **Mini player for everyone** (his ask, 2026-11-12: "update the lando minimal version and also
 add that setting to all vibenotes"; his picks: rebuild it in the Silk look, and the setting is
-"open as the mini player"). `Mini(lando)` is anyone's now: tips for Work (his) or for talking
-to Claude directly (Lando). **"Open small like this"** (in the mini) = `Store.settings
+"open as the mini player"). `Mini(lando)` is anyone's now. **No tip in the mini** (his ask, 2026-11-12:
+"there should be no tips shown in this version"): the dot, the bars, Notes ›, Usage ›.
+**It must shrink** (his catch: "the window is still regular size"): Hyprland reuses the last
+floating size of the class and puts a remembered one back a moment after mapping, so both
+minis ask for their own size (Tk `Mini._float`, Silk `app.py` `place`) and keep checking for
+~3 s; the Silk mini also re-asks when its height drifts (`drifted`, 10 times at most), using
+`Mini.qml`'s `wantHeight` (Qt's own height follows the desktop, not the contents). **"Open small like this"** (in the mini) = `Store.settings
 ["start_mini"]` (`start_small`: unset → yes for Lando, no for him); `--mini`/`--full` override.
 The ◱ by the brand (`Brand.small` → `go_mini`: cancels its timers, closes, `.next = "mini"`)
 shrinks the whole app to the mini; the startup loop hands between the two until one is
 simply closed. `--view usage|tips` opens the whole app on that page. Silk has the same:
-`silk/qml/Mini.qml` (city strip, breathing dot, `LiveBars`, a lifting tip card, the toggle),
+`silk/qml/Mini.qml` (city strip, breathing dot, `LiveBars`, the toggle),
 ◱/◳ to switch (`bridge.open` → `app.py`'s `show`, which loads the new window before closing
-the old and quits only when he closes one); its Usage/Tips open the Tk pages for now.
+the old and quits only when he closes one); its Usage › opens the Tk page for now.
 
 **Find** (Ctrl+F, his ask): a box over the page; every note in every project (and its
 snapshot) with all the words, lit up; click one to open its project; Esc goes back.

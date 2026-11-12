@@ -3,13 +3,15 @@ import QtQuick.Window
 import QtQuick.Effects
 
 // The mini player in Silk (his ask, 2026-11-12: "update the lando minimal version"; his pick:
-// rebuild it in the Silk look). The same as the Tk one: the good-time dot, the two usage bars
-// and one tip, then Notes › (the whole Silk app), Usage › and Tips ›. Under a strip of the
+// rebuild it in the Silk look). The same as the Tk one: the good-time dot and the two usage
+// bars, then Notes › (the whole Silk app) and Usage › (no tips here: his ask, 2026-11-12). Under a strip of the
 // living city, on touchable silk. "Open small like this" is the setting every VibeNote has.
 Window {
     id: win
     width: 370
-    height: col.height + 150
+    height: wantHeight
+    // how tall the contents need; app.py asks his desktop for this size
+    readonly property int wantHeight: col.y + col.height + 22
     minimumWidth: 370
     maximumWidth: 370
     visible: true
@@ -121,55 +123,11 @@ Window {
 
             LiveBars { width: parent.width }
 
-            // the tip, on a small card of silk that lifts under the mouse
-            Item {
-                id: tipCard
-                visible: bridge.tip !== ""
-                width: parent.width
-                height: tipText.height + 30
-                property real lift: tipHover.hovered ? 1 : 0
-                Behavior on lift { SpringAnimation { spring: 3.2; damping: 0.26; epsilon: 0.004 } }
-                RectangularShadow {
-                    anchors.fill: tipFace
-                    offset.y: 3 + tipCard.lift * 8
-                    blur: 10 + tipCard.lift * 20
-                    radius: 11
-                    color: Qt.rgba(0, 0, 0, 0.5)
-                }
-                Item {
-                    id: tipFace
-                    width: parent.width
-                    height: parent.height
-                    y: -tipCard.lift * 4
-                    ShaderEffect {
-                        anchors.fill: parent
-                        property real time: win.t
-                        property real lift: tipCard.lift
-                        property size size: Qt.size(width, height)
-                        property point mouse: tipHover.hovered ? tipHover.point.position : Qt.point(-400, -400)
-                        property color tint: "#14301f"
-                        property color edge: C.accent
-                        fragmentShader: shaders + "/card.frag.qsb"
-                    }
-                    HoverHandler { id: tipHover }
-                    Text {
-                        id: tipText
-                        x: 14; y: 15
-                        width: parent.width - 28
-                        wrapMode: Text.Wrap
-                        text: "Tip: " + bridge.tip
-                        color: C.ink
-                        font { family: win.serif; pixelSize: 15 }
-                        lineHeight: 1.1
-                    }
-                }
-            }
-
             Row {
                 spacing: 8
                 topPadding: 4
                 Repeater {
-                    model: [["Notes ›", "notes"], ["Usage ›", "usage"], ["Tips ›", "tips"]]
+                    model: [["Notes ›", "notes"], ["Usage ›", "usage"]]
                     delegate: Item {
                         required property var modelData
                         width: linkText.implicitWidth + 22

@@ -27,8 +27,8 @@ class Bridge(QObject):
     liveChanged = pyqtSignal()
     countsChanged = pyqtSignal()
     smallChanged = pyqtSignal()
-    # which window to show next: "notes" (the whole app) or "mini"; "usage"/"tips" open the
-    # Tk VibeNote's pages until Silk has its own (docs/silk-rebuild.md, step 3)
+    # which window to show next: "notes" (the whole app) or "mini"; "usage" opens the Tk
+    # VibeNote's page until Silk has its own (docs/silk-rebuild.md, step 3)
     wantWindow = pyqtSignal(str)
     said = pyqtSignal(str)
 
@@ -184,11 +184,6 @@ class Bridge(QObject):
     def sign(self):
         level, why = sender.good_time(self.guess)
         return {"level": level, "why": why}
-
-    @pyqtProperty(str, notify=liveChanged)
-    def tip(self):
-        tips = sender.token_tips(self.guess.usage, self.guess, direct=self.lando)
-        return tips[0] if tips else ""
 
     @pyqtProperty(bool, notify=smallChanged)
     def startSmall(self):
