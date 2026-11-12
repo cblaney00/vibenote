@@ -283,6 +283,13 @@ Look (his calls, in order):
   switch**; views Board, Sky, Timeline, Compact. Then: "update the desktop, file, and dock
   icons when youre done with the design" → `assets/icon.svg` is now a silk notepad over the
   night city (it is the menu, dock, file and Glade-squid icon); the loading notepad matches.
+- 2026-11-12, later: "the perspective doesnt feel laggy [he meant: it does] and this doesnt
+  quite feel like a graphics overhaul, we can make insane changes to this app if we
+  prioritize efficiency when it comes to frames. maybe i do want it more lively and
+  interactive, i want the app to feel textured and tangible". His picks: **rebuild on the
+  graphics card**; silk you can touch, notes with weight, a living city (not sounds). This
+  is the **Silk window** (`silk/`, `./run-silk.sh`), built in steps: plan, progress and how
+  it works in **docs/silk-rebuild.md** (read it before working on silk/).
 Ask him before changing the look.
 
 **Ticks** (his ask): each waiting note has a **Send** tick (terracotta, new notes start ticked)
@@ -327,6 +334,11 @@ Any new pop-up must do the same.
   way `vibe` does, reading the launchers, hooks and session rules out of the installed
   `vibe` script so it follows rebuilds. It asks for his sudo password in that terminal.
 - `run.sh` — starts the app through the dev shell (what the menu entry runs).
+- `silk/` — the new Silk window (Qt Quick on the graphics card, being built; see
+  docs/silk-rebuild.md): `app.py`, `bridge.py` (uses store/projects/sender), `qml/`,
+  `shaders/` (`.frag` + compiled `.qsb`, `build_shaders.sh`). `run-silk.sh` starts it.
+  Testing: `VIBENOTE_SHOT=file.png,secs` saves a screenshot and quits, `VIBENOTE_OPEN=slug`
+  opens a project; in xvfb, focus the window with `xdotool search --class vibenote` first.
 - `tests/` — tests for the notes, the to-do files, tokens and usage.
 
 Run: `./run.sh` (or `nix develop /home/insideabush/nixos-config#vibe-python --command python main.py`)
