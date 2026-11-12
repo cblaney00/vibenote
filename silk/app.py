@@ -53,6 +53,15 @@ def float_on_hyprland():
             return
 
 
+def float_mini():
+    if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        try:
+            subprocess.run(["hyprctl", "dispatch", "setfloating", f"pid:{os.getpid()}"],
+                           capture_output=True, timeout=3)
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+
 def main():
     # Qt's own messages (and console.log from the QML) go to the terminal
     qInstallMessageHandler(lambda kind, where, text: print(text, file=sys.stderr))
@@ -73,17 +82,42 @@ def main():
     ctx.setContextProperty("shaders", QUrl.fromLocalFile(str(HERE / "shaders")).toString())
     engine.warnings.connect(lambda ws: [print("QML:", w.toString(), file=sys.stderr)
                                         for w in ws])
-    engine.load(QUrl.fromLocalFile(str(HERE / "qml" / "Main.qml")))
+    shown = []
+    # VibeNote quits when he closes its window, not when one window hands over to the other
+    app.setQuitOnLastWindowClosed(False)
+    switching = [False]
+
+    def show(which):
+        """The mini player and the whole app hand over to each other; Usage and Tips open
+        the Tk VibeNote's pages for now."""
+        if which in ("usage", "tips"):
+            subprocess.Popen([sys.executable, str(HERE.parent / "main.py"), "--full",
+                              "--view", which] + (["--lando"] if bridge.lando else []),
+                             start_new_session=True)
+            return
+        name = "Mini.qml" if which == "mini" else "Main.qml"
+        before = list(engine.rootObjects())
+        engine.load(QUrl.fromLocalFile(str(HERE / "qml" / name)))
+        shown[:] = [o for o in engine.rootObjects() if o not in before]
+        for new in shown:
+            new.closing.connect(lambda _e: switching[0] or app.quit())
+        switching[0] = True
+        for old in before:  # the new one is open first, so there is always a window
+            old.close()
+            old.deleteLater()
+        switching[0] = False
+        QTimer.singleShot(200, float_on_hyprland if which != "mini" else float_mini)
+
+    bridge.wantWindow.connect(show)
+    small = ("--mini" in sys.argv or bridge.startSmall) and "--full" not in sys.argv
+    show("mini" if small else "notes")
     if not engine.rootObjects():
         sys.exit(1)
-    QTimer.singleShot(200, float_on_hyprland)
     shot = os.environ.get("VIBENOTE_SHOT")  # for testing: "file.png,seconds"
     if shot:
         path, wait = (shot.split(",") + ["4"])[:2]
-        window = engine.rootObjects()[0]
-
         def grab():
-            window.grabWindow().save(path)
+            shown[0].grabWindow().save(path)
             app.quit()
 
         QTimer.singleShot(int(float(wait) * 1000), grab)

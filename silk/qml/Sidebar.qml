@@ -34,6 +34,21 @@ Item {
         }
     }
 
+    Text {  // shrink to the mini player (his ask, 2026-11-12)
+        anchors { right: parent.right; rightMargin: 18; verticalCenter: brand.verticalCenter }
+        text: "◱"
+        color: smallArea.containsMouse ? C.peach : C.faded
+        font.pixelSize: 20
+        MouseArea {
+            id: smallArea
+            anchors.fill: parent
+            anchors.margins: -6
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: bridge.open("mini")
+        }
+    }
+
     ListView {
         id: list
         anchors { left: parent.left; right: parent.right; top: brand.bottom; bottom: foot.top }
@@ -145,69 +160,6 @@ Item {
             font { family: win.serif; pixelSize: 14 }
         }
         Item { width: 1; height: 6 }
-        Text {
-            text: bridge.live.bars.length ? bridge.live.name + " now" : "Live usage shows after Claude's next reply."
-            color: C.faded
-            width: parent.width
-            wrapMode: Text.Wrap
-            font { family: win.serif; pixelSize: 13; bold: true }
-        }
-        Repeater {
-            model: bridge.live.bars
-            delegate: Column {
-                required property var modelData
-                width: foot.width
-                spacing: 4
-                Item {
-                    width: parent.width
-                    height: 20
-                    Text {
-                        text: modelData.title
-                        color: C.ink
-                        font { family: win.serif; pixelSize: 15 }
-                    }
-                    Text {
-                        anchors.right: parent.right
-                        text: Math.round(modelData.percent) + "%"
-                        color: modelData.percent < 50 ? C.jade : modelData.percent < 80 ? C.ink : C.accent
-                        font { family: win.serif; pixelSize: 15 }
-                    }
-                }
-                Rectangle {
-                    width: parent.width
-                    height: 8
-                    radius: 4
-                    color: C.rule
-                    clip: true
-                    Rectangle {
-                        id: fill
-                        height: parent.height
-                        radius: 4
-                        width: Math.max(4, foot.width * modelData.percent / 100)
-                        Behavior on width { NumberAnimation { duration: 1100; easing.type: Easing.OutCubic } }
-                        color: modelData.percent < 50 ? C.jade : modelData.percent < 80 ? C.faded : C.accent
-                        // a slow shimmer running along the filled part
-                        Rectangle {
-                            width: 40
-                            height: parent.height
-                            opacity: 0.35
-                            gradient: Gradient {
-                                orientation: Gradient.Horizontal
-                                GradientStop { position: 0; color: "transparent" }
-                                GradientStop { position: 0.5; color: C.ink }
-                                GradientStop { position: 1; color: "transparent" }
-                            }
-                            x: ((win.t * 40) % (fill.width + 160)) - 80
-                        }
-                    }
-                }
-                Text {
-                    text: modelData.resets
-                    color: C.faded
-                    font { family: win.serif; pixelSize: 13 }
-                    bottomPadding: 4
-                }
-            }
-        }
+        LiveBars { width: parent.width }
     }
 }

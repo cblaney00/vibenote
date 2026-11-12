@@ -83,6 +83,7 @@ class VibeNote(tk.Tk):
         super().__init__(className="vibenote")
         # Lando mode (his ask, 2026-11-09): Lando talks to Claude himself, so no Work
         self.lando = lando
+        self.next = None  # "mini": shrink to the mini player once this closes
         self.title("VibeNote")
         self.geometry(f"{WIDE}x{TALL}")
         self.minsize(760, 520)
@@ -1860,6 +1861,13 @@ class VibeNote(tk.Tk):
         except tk.TclError:
             pass
 
+    def go_mini(self):
+        """Close this and open the mini player instead."""
+        self.next = "mini"
+        for job in self.tk.call("after", "info"):  # its timers go with it
+            self.after_cancel(job)
+        self.destroy()
+
     def toggle_motion(self):
         self.motion = not self.motion
         self.store.settings["motion"] = self.motion
@@ -2428,12 +2436,22 @@ class Brand(tk.Canvas):
                          0.1, 2.2)
         self.name = self.create_text(20, 34, anchor="w", text="VibeNote", font=app.f_brand,
                                      fill=ACCENT)
+        # shrink to the mini player (his ask, 2026-11-12: the "open small" setting everywhere)
+        self.small = self.create_text(0, 34, anchor="e", font=app.f_glyph, text="◱",
+                                      fill=FADED_INK)
+        self.tag_bind(self.small, "<Button-1>", lambda e: app.go_mini())
+        self.tag_bind(self.small, "<Enter>", lambda e: (self.configure(cursor="hand2"),
+                                                       self.itemconfigure(self.small, fill=ACCENT)))
+        self.tag_bind(self.small, "<Leave>", lambda e: (self.configure(cursor=""),
+                                                       self.itemconfigure(self.small,
+                                                                          fill=FADED_INK)))
         self.switch = self.create_text(0, 34, anchor="e", font=app.f_glyph)
         self.tag_bind(self.switch, "<Button-1>", lambda e: app.toggle_motion())
         self.tag_bind(self.switch, "<Enter>", lambda e: self.configure(cursor="hand2"))
         self.tag_bind(self.switch, "<Leave>", lambda e: self.configure(cursor=""))
         self.show_switch(app.motion)
         self.bind("<Configure>", lambda e: (self.coords(self.switch, e.width - 16, 34),
+                                            self.coords(self.small, e.width - 40, 34),
                                             self.silk.shape(0, e.width)))
 
     def show_switch(self, on):
@@ -2768,18 +2786,21 @@ class SnapshotDetails(tk.Toplevel):
 
 
 class Mini(tk.Tk):
-    """Lando mode's mini player (his pick, 2026-11-09: "minimized almost like a miniplayer
-    ... not a lot of text by default"): the good-time dot, the two usage bars and one tip.
-    Notes, Usage and Tips open the whole app (without Work). .next says which."""
+    """The mini player (Lando's pick, 2026-11-09: "minimized almost like a miniplayer ... not
+    a lot of text by default"): the good-time dot, the two usage bars and one tip. Notes,
+    Usage and Tips open the whole app. .next says which. Since 2026-11-12 every VibeNote has
+    it (his ask), with "Open small like this" to start here each time."""
 
     WIDTH = 340
 
-    def __init__(self):
+    def __init__(self, lando=False):
         super().__init__(className="vibenote")
         self.title("VibeNote")
         self.configure(bg=SIDEBAR)
         self.resizable(False, False)
         self.next = None
+        self.lando = lando
+        self.store = Store()
         self.f_small = tkfont.Font(family=SERIF, size=13)
         self.f_section = tkfont.Font(family=SERIF, size=11, weight="bold")
         self.f_side = tkfont.Font(family=SERIF, size=15)
@@ -2797,6 +2818,10 @@ class Mini(tk.Tk):
         for text, view in (("Notes ›", "notes"), ("Usage ›", "usage"), ("Tips ›", "tips")):
             SmallButton(links, self.f_small, lambda v=view: self.open(v), ACCENT, text).pack(
                 side="left", padx=(0, 8))
+        self.small = tk.Label(box, font=self.f_small, bg=SIDEBAR, anchor="w", cursor="hand2")
+        self.small.pack(fill="x", pady=(10, 0))
+        self.small.bind("<Button-1>", lambda e: self.toggle_small())
+        self._show_small()
         self.bind("<Escape>", lambda e: self.destroy())
         self.show()
         self.after(200, self._float)
@@ -2812,13 +2837,23 @@ class Mini(tk.Tk):
         for w in self.live.winfo_children():
             w.destroy()
         draw_live(self.live, self.f_small, self.f_section, self.WIDTH - 40, SIDEBAR)
-        tips = sender.token_tips(guess.usage, guess, direct=True)
+        tips = sender.token_tips(guess.usage, guess, direct=self.lando)
         self.tip.configure(text="Tip: " + tips[0] if tips else "")
         self.after(30_000, self.show)
 
     def open(self, view):
         self.next = view
         self.destroy()
+
+    def _show_small(self):
+        on = start_small(self.store, self.lando)
+        self.small.configure(text=("☑" if on else "☐") + "  Open small like this",
+                             fg=ACCENT if on else FADED_INK)
+
+    def toggle_small(self):
+        self.store.settings["start_mini"] = not start_small(self.store, self.lando)
+        self.store.save()
+        self._show_small()
 
     def _float(self):
         if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
@@ -2828,6 +2863,12 @@ class Mini(tk.Tk):
                            capture_output=True, timeout=3)
         except (OSError, subprocess.SubprocessError):
             pass
+
+
+def start_small(store, lando):
+    """Whether VibeNote opens as the mini player: his setting, else yes for Lando (his mini
+    player is how Lando mode opens) and no for insideabush."""
+    return store.settings.get("start_mini", lando)
 
 
 def live_colour(pct):
@@ -3032,12 +3073,19 @@ if __name__ == "__main__":
         # --toggle (the top bar's click): a second click closes the open VibeNote
         if close_older_copies() and "--toggle" in sys.argv:
             sys.exit()
-        if "--lando" in sys.argv or sender.LANDO:
-            mini = None
-            if "--full" not in sys.argv:
-                mini = Mini()
+        lando = "--lando" in sys.argv or sender.LANDO
+        view = sys.argv[sys.argv.index("--view") + 1] if "--view" in sys.argv[:-1] else None
+        small = ("--mini" in sys.argv or start_small(Store(), lando)) and "--full" not in sys.argv
+        # the mini player and the whole app hand over to each other until one is just closed
+        while True:
+            if small:
+                mini = Mini(lando)
                 mini.mainloop()
-            if mini is None or mini.next:
-                VibeNote(lando=True, view=mini and mini.next).mainloop()
-        else:
-            VibeNote().mainloop()
+                if not mini.next:
+                    break
+                view = mini.next if mini.next in ("usage", "tips") else None
+            app = VibeNote(lando=lando, view=view)
+            app.mainloop()
+            if app.next != "mini":
+                break
+            small, view = True, None

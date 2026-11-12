@@ -33,6 +33,8 @@ Still dim for his eyes: emerald and copper, cream text, never white.
    ripples), living-city horizon shader, sidebar of projects, notes as lifting cards: write,
    edit, delete, Send tick and Send, Later/Now, Finished, sections for sent / worked / Later
    / with Lando / done, usage bars. Re-reads the to-do lists every 10 s like the Tk app.
+1b. **Mini player** (2026-11-12, done): `Mini.qml`, the "open small" setting, ◱/◳ switching.
+   (In xvfb the shaders render on the CPU, so timers run late: give tests more time.)
 2. Views: Board with drag-and-toss cards (springs), Sky in real 3D (Quick3D), Timeline,
    Compact. Sidebar drag to order / pin.
 3. Everything else from the Tk app: Work + token warning, Organize (sizes, groups, token

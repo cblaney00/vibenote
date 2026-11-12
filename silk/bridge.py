@@ -26,6 +26,10 @@ class Bridge(QObject):
     pageChanged = pyqtSignal()
     liveChanged = pyqtSignal()
     countsChanged = pyqtSignal()
+    smallChanged = pyqtSignal()
+    # which window to show next: "notes" (the whole app) or "mini"; "usage"/"tips" open the
+    # Tk VibeNote's pages until Silk has its own (docs/silk-rebuild.md, step 3)
+    wantWindow = pyqtSignal(str)
     said = pyqtSignal(str)
 
     def __init__(self, lando=False):
@@ -45,8 +49,14 @@ class Bridge(QObject):
         self._timer.timeout.connect(self._reread)
         self._timer.start(10_000)
         self._live_timer = QTimer(self)
-        self._live_timer.timeout.connect(self.liveChanged.emit)
+        self._live_timer.timeout.connect(self._live_tick)
         self._live_timer.start(30_000)
+        self._live_tick()
+
+    def _live_tick(self):
+        # Lando's VibeNote fetches his own numbers (for next time's bars), like the Tk one
+        threading.Thread(target=sender.refresh_own_usage, daemon=True).start()
+        self.liveChanged.emit()
 
     # --- reading ------------------------------------------------------------------
 
@@ -174,6 +184,27 @@ class Bridge(QObject):
     def sign(self):
         level, why = sender.good_time(self.guess)
         return {"level": level, "why": why}
+
+    @pyqtProperty(str, notify=liveChanged)
+    def tip(self):
+        tips = sender.token_tips(self.guess.usage, self.guess, direct=self.lando)
+        return tips[0] if tips else ""
+
+    @pyqtProperty(bool, notify=smallChanged)
+    def startSmall(self):
+        """Open as the mini player (his ask, 2026-11-12, in every VibeNote): his setting,
+        else yes for Lando and no for insideabush, the same as the Tk app."""
+        return self.store.settings.get("start_mini", self.lando)
+
+    @pyqtSlot()
+    def toggleSmall(self):
+        self.store.settings["start_mini"] = not self.startSmall
+        self.store.save()
+        self.smallChanged.emit()
+
+    @pyqtSlot(str)
+    def open(self, which):
+        self.wantWindow.emit(which)
 
     # --- changing -------------------------------------------------------------------
 
