@@ -32,6 +32,7 @@ class Bridge(QObject):
     wantWindow = pyqtSignal(str)
     said = pyqtSignal(str)
     busyChanged = pyqtSignal()
+    layoutChanged = pyqtSignal()
     _workEnded = pyqtSignal(str)  # from the side thread that hands the items to Claude
     _learned = pyqtSignal(object, bool)  # usage re-read on a side thread; True: say so
 
@@ -221,6 +222,94 @@ class Bridge(QObject):
         return {"title": p.title, "counts": counts, "sections": sections,
                 "tickAll": bool(waiting or (sent and not self.lando)),
                 "canOrganize": bool(waiting or sent)}
+
+    LAYOUTS = ("list", "board", "sky", "timeline", "compact")
+
+    @pyqtProperty(str, notify=layoutChanged)
+    def layout(self):
+        """The view (his ask, 2026-11-12): kept in notes.json, shared with the Tk VibeNote."""
+        at = self.store.settings.get("layout", "list")
+        return at if at in self.LAYOUTS else "list"
+
+    @pyqtSlot(str)
+    def setLayout(self, name):
+        if name in self.LAYOUTS and name != self.layout:
+            self.store.settings["layout"] = name
+            self.store.save()
+            self.layoutChanged.emit()
+
+    @pyqtProperty("QVariantList", notify=pageChanged)
+    def everyNote(self):
+        """Every note of the open project for Board, Sky, Timeline and Compact, in status
+        order (waiting, later, sent, worked, with Lando, done), each with its day."""
+        p = self.current
+        if p is None:
+            return []
+        st = self.store
+        sent = st.get(p.slug, "sent")
+        done = st.get(p.slug, "done")
+        done = sorted((n for n in done if n.get("done")), key=lambda n: n["done"],
+                      reverse=True) + [n for n in done if not n.get("done")]
+        out = []
+        for kind, notes in (("waiting", st.get(p.slug)), ("later", st.get(p.slug, "later")),
+                            ("sent", [n for n in sent if not n.get("worked")]),
+                            ("worked", [n for n in sent if n.get("worked")]),
+                            ("review", st.get(p.slug, "review")), ("done", done)):
+            for n in notes:
+                card = self._card(n, kind)
+                day = str(n.get("done") or n.get("review") or n.get("worked") or n.get("sent")
+                          or n.get("added") or "")[:10]
+                try:
+                    card["dayTitle"] = date.fromisoformat(day).strftime("%A %-d %B")
+                except ValueError:
+                    card["dayTitle"] = "Earlier"
+                card["day"] = day
+                card["tokens"] = (sender.short_tokens(self._tokens(n))
+                                  if "size" in n and kind not in ("done", "review") else "")
+                out.append(card)
+        return out
+
+    @pyqtSlot(str, str)
+    def boardDrop(self, note_id, column):
+        """A card tossed into another Board column: Waiting → Sent sends it; Worked on →
+        Done ticks it finished; Sent → Waiting puts it in Later. Anything else springs back."""
+        note = self._note(note_id)
+        if note is None:
+            return
+        kind = "worked" if note["status"] == "sent" and note.get("worked") else note["status"]
+        if kind == "waiting" and column == "sent":
+            p = self.current
+            try:
+                todo = sender.add_to_list(p, [note["text"]])
+            except OSError as err:
+                self.said.emit(f"Couldn't add it to the list: {err.strerror or err}.")
+                self._changed()
+                return
+            self.store.mark_sent(p.slug, [note_id])
+            self.said.emit(f"✓ Added to {todo.name}")
+            self._changed()
+        elif kind == "worked" and column == "done":
+            self.finish(note_id)
+        elif kind in ("sent", "worked") and column == "waiting":
+            self.later(note_id)
+        elif kind == "later" and column == "waiting":
+            self.now(note_id)
+        else:
+            self._changed()  # springs back
+
+    # --- the sidebar: his order and the Pinned box (his ask, 2026-11-06) -------------
+
+    @pyqtSlot("QVariantList", "QVariantList")
+    def setOrder(self, order, pinned):
+        self.store.set_order([str(s) for s in order], [str(s) for s in pinned])
+        self._sort()
+        self.projectsChanged.emit()
+
+    @pyqtSlot(str)
+    def togglePin(self, slug):
+        self.store.toggle_pin(slug, [p.slug for p in self.projects])
+        self._sort()
+        self.projectsChanged.emit()
 
     @pyqtProperty("QVariantMap", notify=liveChanged)
     def live(self):

@@ -35,11 +35,21 @@ Still dim for his eyes: emerald and copper, cream text, never white.
    / with Lando / done, usage bars. Re-reads the to-do lists every 10 s like the Tk app.
 1b. **Mini player** (2026-11-12, done): `Mini.qml`, the "open small" setting, ◱/◳ switching.
    (In xvfb the shaders render on the CPU, so timers run late: give tests more time.)
-2. Views: Board with drag-and-toss cards (springs), Sky in real 3D (Quick3D), Timeline,
-   Compact. Sidebar drag to order / pin.
-3. Everything else from the Tk app: Work + token warning, Organize (sizes, groups, token
-   tags), New chat, Move menu, snapshots on hover, Find, Summary, usage page and tips, copy
-   text, Lando mode and its mini player, one copy at a time, pop-ups in the middle.
+2. **Views** (2026-11-12, done): tabs over the sky (`ViewTabs.qml`, `bridge.layout`, shared
+   with Tk in notes.json). `Board.qml`/`BoardCard.qml`: pick a card up, it follows on a
+   spring and can be tossed (release speed carries it on); `bridge.boardDrop`: Waiting → Sent
+   sends, Worked on → Done finishes, open → Waiting is Later, Later → Waiting is Now, else it
+   springs home. `Sky.qml`: perspective done in plain Qt Quick (scale/opacity by depth, wheel
+   flies, mouse tilts), not Quick3D: simpler and as fast. `LineView.qml` = Timeline and
+   Compact. Clicking a note in any of them → `win.gotoNote` (List, scrolled, lit up).
+   Sidebar (`Sidebar.qml`): a ListModel, so dragging only moves rows; Pinned box always
+   shown; ⚑/⚐ flag and right-click pin (`bridge.setOrder`, `togglePin`).
+3a. (2026-11-12, done) Work + token warning (`TokenWarning.qml`, inside the window so it is
+   always centred), Organize (sizes, groups, token totals), Tick all (`TickAllRow.qml`),
+   section Send/Work words, Move menu (`PopMenu.qml`, right-click), New chat, snapshot line
+   on hover, guessed/used on dates. `sender.usage_after` is shared with Tk.
+3. Still to do: Find, Summary, usage page and tips, copy text, Lando mode and its mini
+   player, one copy at a time.
 4. **Switch-over** (a config change, for Lando to approve): the package's Python gets
    `pyqt6` and copies `silk/`, and `vibenote` starts the Silk window. He asks via `vibe` →
    "Change or fix something on your computer". Until then the menu VibeNote is the Tk one.

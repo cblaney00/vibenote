@@ -7,7 +7,7 @@ Item {
     width: ListView.view ? ListView.view.width : 600
     height: label.height + 10
     HoverHandler { id: hh }
-    property real glow: hh.hovered ? 1 : 0
+    property real glow: (hh.hovered || win.flashId === note.id) ? 1 : 0
     Behavior on glow { NumberAnimation { duration: 220 } }
     Text {
         id: tick

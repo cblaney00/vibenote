@@ -13,7 +13,7 @@ Item {
     property bool workOn: note.work
     readonly property bool workable: !bridge.isLando && (note.kind === "waiting" || note.kind === "sent"
                                                          || note.kind === "worked")
-    property real lift: (hh.hovered || editing) ? 1 : 0
+    property real lift: (hh.hovered || editing || win.flashId === note.id) ? 1 : 0
     Behavior on lift { SpringAnimation { spring: 3.2; damping: 0.26; epsilon: 0.004 } }
     property real press: 0
     Behavior on press { SpringAnimation { spring: 6; damping: 0.4 } }

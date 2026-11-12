@@ -37,6 +37,16 @@ Window {
 
     function menuFor(id, x, y) { popMenu.openAt(id, x, y) }
 
+    // open a note in List from the other views: scroll to it and light it up for a moment
+    property string flashId: ""
+    property string wantId: ""
+    function gotoNote(id) {
+        wantId = id
+        if (bridge.layout !== "list") bridge.setLayout("list")
+        else notes.findWanted()
+    }
+    Timer { id: flashEnd; interval: 1600; onTriggered: win.flashId = "" }
+
     function say(text) {
         status.text = text
         status.opacity = 1
@@ -100,7 +110,7 @@ Window {
                 x: page.pad
                 y: 56
                 width: parent.width - page.pad * 2 - tabsSpace
-                readonly property real tabsSpace: 0
+                readonly property real tabsSpace: tabs.width + 20
                 text: bridge.page.title
                 color: C.ink
                 elide: Text.ElideRight
@@ -110,6 +120,13 @@ Window {
                 // the title eases in when the project changes
                 onTextChanged: { titleIn.restart() }
                 NumberAnimation on opacity { id: titleIn; from: 0.2; to: 1; duration: 500; easing.type: Easing.OutCubic }
+            }
+
+            ViewTabs {
+                id: tabs
+                anchors { right: parent.right; rightMargin: page.pad }
+                y: 66
+                visible: bridge.page.title !== "No projects yet"
             }
 
             Row {
@@ -177,6 +194,7 @@ Window {
                 anchors { left: parent.left; right: parent.right; top: entry.bottom; bottom: bar.top }
                 anchors { leftMargin: page.pad - 6; rightMargin: page.pad - 6; topMargin: 14; bottomMargin: 8 }
                 clip: true
+                visible: bridge.layout === "list"
                 spacing: 6
                 cacheBuffer: 600
                 maximumFlickVelocity: 4000
@@ -237,7 +255,22 @@ Window {
                     freshEnd.restart()
                     model = rows
                     if (same) Qt.callLater(function() { notes.contentY = keep })
+                    if (win.wantId) Qt.callLater(findWanted)
                 }
+                function findWanted() {
+                    var id = win.wantId
+                    if (!id || !visible) return
+                    win.wantId = ""
+                    for (var i = 0; i < model.length; i++) {
+                        if (model[i].note && model[i].note.id === id) {
+                            positionViewAtIndex(i, ListView.Center)
+                            win.flashId = id
+                            flashEnd.restart()
+                            return
+                        }
+                    }
+                }
+                onVisibleChanged: if (visible && win.wantId) Qt.callLater(findWanted)
                 Component.onCompleted: rebuild()
                 Connections {
                     target: bridge
@@ -256,6 +289,21 @@ Window {
                     height: Math.max(30, notes.height * notes.height / Math.max(notes.contentHeight, 1))
                     y: (notes.height - height) * Math.min(1, Math.max(0, notes.contentY / Math.max(1, notes.contentHeight - notes.height)))
                 }
+            }
+
+            // the other views take the notes' place
+            Loader {
+                id: otherView
+                anchors { left: parent.left; right: parent.right; top: entry.bottom; bottom: bar.top }
+                anchors { leftMargin: page.pad - 6; rightMargin: page.pad - 6; topMargin: 14; bottomMargin: 8 }
+                active: bridge.layout !== "list"
+                sourceComponent: ({ board: boardC, sky: skyC, timeline: timelineC, compact: compactC })[bridge.layout] || null
+                Component { id: boardC; Board {} }
+                Component { id: skyC; Sky {} }
+                Component { id: timelineC; LineView { diary: true } }
+                Component { id: compactC; LineView { diary: false } }
+                onLoaded: { item.opacity = 0; viewIn.target = item; viewIn.restart() }
+                NumberAnimation { id: viewIn; property: "opacity"; to: 1; duration: 350; easing.type: Easing.OutCubic }
             }
 
             Item {
