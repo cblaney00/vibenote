@@ -863,27 +863,7 @@ class VibeNote(tk.Tk):
         return sender.usage_report(self.guess.usage, sender.load_accounts(), extra=extra)
 
     def _usage_after(self, cost):
-        """For the Work warning: what this request does to the account logged in now (his
-        ask: "if the session will set me off track")."""
-        report = self._report(extra=cost)
-        acc = next((a for a in report["accounts"] if a["logged_in"]), None)
-        if acc is None:
-            return ""
-        t = sender.short_tokens
-        text = (f"{acc['name']} (logged in now) after this: {t(acc['used'])} used this week. "
-                f"At your pace that is {t(acc['projected'])} by its refresh "
-                f"({sender.refresh_text(acc)})")
-        if acc["limit"]:
-            if acc["on_track"]:
-                text += f", within the {t(acc['limit'])} it can do. On track."
-            else:
-                text += (f", more than the {t(acc['limit'])} it can do: off track. Keep to "
-                         f"{t(acc['daily_budget'])} a day.")
-        else:
-            text += "."
-        if report["use_now"] and report["use_now"] != acc["name"]:
-            text += f" Better to use {report['use_now']} first: its week ends sooner."
-        return text
+        return sender.usage_after(self.guess.usage, cost)
 
     def _draw_usage(self):
         """Claude usage, broken down, for both accounts (his ask, 2026-11-02)."""

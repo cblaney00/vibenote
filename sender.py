@@ -936,6 +936,30 @@ def usage_report(usage: dict | None, accounts: list[dict], now=None,
     return report
 
 
+def usage_after(usage: dict | None, cost: float, accounts: list[dict] | None = None) -> str:
+    """For the Work warning: what this request does to the account logged in now (his
+    ask: "if the session will set me off track")."""
+    report = usage_report(usage, load_accounts() if accounts is None else accounts, extra=cost)
+    acc = next((a for a in report["accounts"] if a["logged_in"]), None)
+    if acc is None:
+        return ""
+    t = short_tokens
+    text = (f"{acc['name']} (logged in now) after this: {t(acc['used'])} used this week. "
+            f"At your pace that is {t(acc['projected'])} by its refresh "
+            f"({refresh_text(acc)})")
+    if acc["limit"]:
+        if acc["on_track"]:
+            text += f", within the {t(acc['limit'])} it can do. On track."
+        else:
+            text += (f", more than the {t(acc['limit'])} it can do: off track. Keep to "
+                     f"{t(acc['daily_budget'])} a day.")
+    else:
+        text += "."
+    if report["use_now"] and report["use_now"] != acc["name"]:
+        text += f" Better to use {report['use_now']} first: its week ends sooner."
+    return text
+
+
 # --- a snapshot of the project when he writes a note (his ask, 2026-11-02) ---------------
 
 def _git(path: Path, *args: str) -> str:

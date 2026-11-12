@@ -6,6 +6,7 @@ Item {
     id: btn
     property string text
     property bool main: false
+    property bool work: false  // the green Work button
     signal clicked()
     width: label.implicitWidth + 44
     height: 44
@@ -30,13 +31,15 @@ Item {
             GradientStop { position: 1; color: "#0f251c" }
         }
         border.width: 1.5
-        border.color: btn.main ? Qt.tint(C.accent, Qt.rgba(0.84, 0.6, 0.45, btn.hot * 0.6)) : C.rule
+        border.color: btn.main ? Qt.tint(C.accent, Qt.rgba(0.84, 0.6, 0.45, btn.hot * 0.6))
+                      : btn.work ? C.jade : C.rule
     }
     Text {
         id: label
         anchors.centerIn: parent
         text: btn.text
-        color: btn.main ? Qt.tint(C.accent, Qt.rgba(0.84, 0.6, 0.45, btn.hot * 0.6)) : C.ink
+        color: btn.main ? Qt.tint(C.accent, Qt.rgba(0.84, 0.6, 0.45, btn.hot * 0.6))
+               : btn.work ? C.jade : C.ink
         font { family: win.serif; pixelSize: 18; bold: true }
     }
     MouseArea {

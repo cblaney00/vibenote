@@ -35,6 +35,8 @@ Window {
         nextRipple = (nextRipple + 1) % 4
     }
 
+    function menuFor(id, x, y) { popMenu.openAt(id, x, y) }
+
     function say(text) {
         status.text = text
         status.opacity = 1
@@ -120,6 +122,21 @@ Window {
                     color: C.faded
                     font { family: win.serif; pixelSize: 16 }
                 }
+                Text {  // a fresh Claude chat on the project, no notes (his ask, 2026-11-10)
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: !bridge.isLando && bridge.page.sections !== undefined && bridge.page.title !== "No projects yet"
+                    text: "New chat ›"
+                    color: nc.containsMouse ? C.peach : C.accent
+                    font { family: win.serif; pixelSize: 16 }
+                    MouseArea {
+                        id: nc
+                        anchors.fill: parent
+                        anchors.margins: -6
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: bridge.newChat()
+                    }
+                }
             }
 
             // the margin: a copper thread with a glint running down it now and then
@@ -188,20 +205,30 @@ Window {
                     Component.onCompleted: if (ListView.view.fresh) driftIn.start()
                     required property var modelData
                     required property int index
-                    sourceComponent: modelData.type === "head" ? headRow
+                    sourceComponent: modelData.type === "head" || modelData.type === "group" ? headRow
+                                     : modelData.type === "tickall" ? tickRow
                                      : modelData.note.kind === "done" ? doneRow : noteCard
                     Component { id: headRow; SectionHead { info: modelData } }
+                    Component { id: tickRow; TickAllRow {} }
                     Component { id: doneRow; DoneRow { note: modelData.note } }
                     Component { id: noteCard; NoteCard { note: modelData.note } }
                 }
                 function rebuild() {
                     var p = bridge.page
                     var rows = []
+                    if (p.tickAll) rows.push({ type: "tickall" })
                     for (var i = 0; i < p.sections.length; i++) {
                         var s = p.sections[i]
-                        rows.push({ type: "head", title: s.title, count: s.count, key: s.key })
-                        for (var j = 0; j < s.notes.length; j++)
-                            rows.push({ type: "note", note: s.notes[j] })
+                        rows.push({ type: "head", title: s.title, count: s.count, key: s.key,
+                                    total: s.total, send: s.send, work: s.work })
+                        var group = ""
+                        for (var j = 0; j < s.notes.length; j++) {
+                            var n = s.notes[j]
+                            if (n.group && n.group !== group)  // after Organize (his pick)
+                                rows.push({ type: "group", title: n.group, total: s.groups[n.group], key: s.key })
+                            group = n.group
+                            rows.push({ type: "note", note: n })
+                        }
                     }
                     var same = shownTitle === p.title
                     var keep = contentY
@@ -238,7 +265,7 @@ Window {
                 height: 46
                 Text {
                     id: status
-                    anchors { left: parent.left; right: sendBtn.left; verticalCenter: parent.verticalCenter; rightMargin: 12 }
+                    anchors { left: parent.left; right: organizeBtn.left; verticalCenter: parent.verticalCenter; rightMargin: 12 }
                     color: C.faded
                     elide: Text.ElideRight
                     font { family: win.serif; pixelSize: 16 }
@@ -246,8 +273,25 @@ Window {
                     Timer { id: statusFade; interval: 6000; onTriggered: status.opacity = 0 }
                 }
                 SilkButton {
-                    id: sendBtn
+                    id: organizeBtn
+                    anchors { right: sendBtn.left; rightMargin: 12; verticalCenter: parent.verticalCenter }
+                    text: "Organize"
+                    enabled: bridge.page.canOrganize === true
+                    onClicked: bridge.organize()
+                }
+                SilkButton {
+                    id: workBtn
                     anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                    visible: !bridge.isLando
+                    text: bridge.busy ? "Starting…"
+                          : bridge.workCount ? "Work " + bridge.workCount + " · " + bridge.workTokens : "Work"
+                    enabled: bridge.workCount > 0 && !bridge.busy
+                    work: true
+                    onClicked: warning.ask()
+                }
+                SilkButton {
+                    id: sendBtn
+                    anchors { right: workBtn.visible ? workBtn.left : parent.right; rightMargin: workBtn.visible ? 12 : 0; verticalCenter: parent.verticalCenter }
                     text: bridge.sendCount ? "Send " + bridge.sendCount + " ticked" : "Send"
                     enabled: bridge.sendCount > 0
                     main: true
@@ -255,5 +299,8 @@ Window {
                 }
             }
         }
+
+        PopMenu { id: popMenu }
+        TokenWarning { id: warning }
     }
 }

@@ -10,6 +10,9 @@ Item {
     readonly property bool waiting: note.kind === "waiting"
     property bool editing: false
     property bool sendOn: note.send
+    property bool workOn: note.work
+    readonly property bool workable: !bridge.isLando && (note.kind === "waiting" || note.kind === "sent"
+                                                         || note.kind === "worked")
     property real lift: (hh.hovered || editing) ? 1 : 0
     Behavior on lift { SpringAnimation { spring: 3.2; damping: 0.26; epsilon: 0.004 } }
     property real press: 0
@@ -70,6 +73,15 @@ Item {
         }
 
         HoverHandler { id: hh }
+        // right-click: Later / Now / Move to another project
+        TapHandler {
+            acceptedButtons: Qt.RightButton
+            enabled: card.note.kind !== "done" && card.note.kind !== "review"
+            onTapped: (ev) => {
+                var at = body.mapToItem(root, ev.position.x, ev.position.y)
+                win.menuFor(card.note.id, at.x, at.y)
+            }
+        }
 
         Item {
             id: content
@@ -120,9 +132,44 @@ Item {
                 }
             }
 
+            // the Work tick: a jade bead (the green Work column of the Tk app)
+            Item {
+                id: workMark
+                x: mark.width
+                width: card.workable ? 30 : 0
+                height: 26
+                visible: card.workable
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 18; height: 18; radius: 5
+                    color: card.workOn ? C.jade : "transparent"
+                    border.color: card.workOn ? C.jade : C.faded
+                    border.width: 1.5
+                    scale: workArea.pressed ? 0.75 : 1
+                    Behavior on scale { SpringAnimation { spring: 5; damping: 0.3 } }
+                    Behavior on color { ColorAnimation { duration: 180 } }
+                    Text {
+                        anchors.centerIn: parent
+                        visible: card.workOn
+                        text: "✓"
+                        color: C.paper
+                        font { pixelSize: 12; bold: true }
+                    }
+                }
+                MouseArea {
+                    id: workArea
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        card.workOn = !card.workOn
+                        bridge.tick(card.note.id, "work")
+                    }
+                }
+            }
+
             Column {
                 id: textCol
-                x: mark.width + 8
+                x: mark.width + workMark.width + 8
                 width: parent.width - x - side.width - 10
                 spacing: 4
                 Text {
@@ -161,7 +208,10 @@ Item {
                     visible: card.note.when !== ""
                     Text {
                         id: whenText
+                        width: parent.width
+                        elide: Text.ElideRight
                         text: (card.note.kind === "waiting" ? "written " : "") + card.note.when
+                              + (card.note.snap !== "" ? "   ·   " + card.note.snap : "")
                         opacity: card.lift
                         color: card.note.kind === "worked" ? C.jade : C.faded
                         font { family: win.serif; pixelSize: 14 }
@@ -189,10 +239,10 @@ Item {
                 y: 2
                 spacing: 12
                 Repeater {
-                    model: ({ waiting: [["Later", "later"], ["×", "delete"]],
+                    model: ({ waiting: [["Later", "later"], ["Move", "move"], ["×", "delete"]],
                               sent: [["Later", "later"]],
                               worked: [["Finished", "finish"], ["Later", "later"]],
-                              later: [["Now", "now"], ["×", "delete"]],
+                              later: [["Now", "now"], ["Move", "move"], ["×", "delete"]],
                               review: [] })[card.note.kind] || []
                     delegate: Text {
                         required property var modelData
@@ -207,8 +257,12 @@ Item {
                             anchors.margins: -4
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: {
+                            onClicked: (m) => {
                                 var a = modelData[1], id = card.note.id
+                                if (a === "move") {
+                                    var at = mapToItem(root, m.x, m.y)
+                                    win.menuFor(id, at.x, at.y)
+                                }
                                 if (a === "later") bridge.later(id)
                                 else if (a === "delete") bridge.deleteNote(id)
                                 else if (a === "finish") bridge.finish(id)
