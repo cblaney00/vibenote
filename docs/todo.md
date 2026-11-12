@@ -5,6 +5,7 @@ when one is finished, tick it and move it to **Done**.
 
 ## To do
 
+- [ ] vibenote should have more view types and needs a graphic overhaul. it needs to feel made of an exotic fabric, something with almost magical properties. be creative with this, i want to feel like im going to bed in silk pajamas in a night city utopia, add light animations for a sense of space, add perpective as well
 
 ## Done
 
