@@ -1,10 +1,12 @@
-"""VibeNote: notes for each of his projects, on warm paper, sent to that project's Claude in batches.
+"""VibeNote: notes for each of his projects, on emerald silk under a night city, sent to that project's Claude in batches.
 
 Writing and sorting notes never needs Claude; only the Send button talks to it.
 """
 
 import json
+import math
 import os
+import random
 from pathlib import Path
 import sys
 import subprocess
@@ -18,19 +20,45 @@ import projects
 import sender
 from store import Store, condense, group_notes, size_label, size_score, tokens_in
 
-# Dark warm colours (his ask, 2026-10-30: "darker, i like warm colors but it cant hurt my
-# eyes, im light sensitive"): deep brown, soft cream text (never white), muted terracotta.
-PAPER = "#211b16"           # the page
-SIDEBAR = "#19140f"
-SIDEBAR_PICKED = "#30271f"
-INK = "#d9c8ab"             # main text: soft cream, not bright
-FADED_INK = "#8a7a64"
-RULE = "#382f27"            # ruled lines, quiet borders
-ACCENT = "#c47650"          # muted terracotta: headings, Send tick, main button
-ACCENT_DARK = "#d58a63"     # main button when the mouse is on it
-MARGIN = "#5e3a2a"          # the notebook margin line, kept dim
-FIELD = "#2a231d"           # text boxes
-WORK_GREEN = "#8ea36b"      # the Work tick, so it never looks like the Send tick
+# Emerald silk under a night city (his ask, 2026-11-12: "made of an exotic fabric ... silk
+# pajamas in a night city utopia"; his pick: emerald silk, copper and peach lights). Still
+# dim for his eyes (2026-10-30: "it cant hurt my eyes, im light sensitive"): soft cream text,
+# never white, no bright areas.
+PAPER = "#0e1c17"           # the page: deep emerald silk
+SIDEBAR = "#0a1511"
+SIDEBAR_PICKED = "#173027"
+INK = "#dccdb2"             # main text: soft cream, not bright
+FADED_INK = "#7f8c7a"       # sage grey
+RULE = "#1f3a30"            # quiet lines and borders
+ACCENT = "#c08457"          # copper: headings, Send tick, main button
+ACCENT_DARK = "#d79a74"     # peach: main button when the mouse is on it
+MARGIN = "#5a3f2c"          # the margin: a dim copper thread
+FIELD = "#132820"           # text boxes
+WORK_GREEN = "#7fb08a"      # jade: the Work tick, so it never looks like the Send tick
+CARD = "#132a21"            # a card of silk on the page (Board and Sky views)
+# the night city on the horizon
+SKY_TOP, SKY_LOW = "#060e0b", "#11271e"
+CITY = {"far": "#0c1b15", "mid": "#09150f", "near": "#06100b"}
+LIGHTS = ["#8a5d3d", "#a8744f", "#b98a66", "#6e4a32", "#9a7a58"]  # dim copper and peach windows
+WINDOW_OFF = "#14231c"
+SILK_GREEN = ["#10291f", "#163628", "#1d4433"]   # a ribbon's edge to its sheen
+SILK_COPPER = ["#17201a", "#21261d", "#2c2d21"]
+HAZE = "#2a2a1f"            # the city's glow on the horizon
+
+# The ways to look at a project's notes (his ask, 2026-11-12: "more view types")
+LAYOUTS = [("list", "List"), ("board", "Board"), ("sky", "Sky"), ("timeline", "Timeline"),
+           ("compact", "Compact")]
+MARKS = {"waiting": "○", "later": "◦", "sent": "→", "worked": "◐", "review": "✓", "done": "✓"}
+WORDS = {"waiting": "waiting", "later": "later", "sent": "sent", "worked": "worked on",
+         "review": "with Lando", "done": "done"}
+
+
+def blend(a, b, t):
+    """The colour t of the way from a to b."""
+    t = max(0.0, min(1.0, t))
+    pa = [int(a[i:i + 2], 16) for i in (1, 3, 5)]
+    pb = [int(b[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(pa, pb))
 
 SERIF = "Georgia"
 GLYPHS = "DejaVu Sans"      # has the grip (⠿) and flags (⚑ ⚐) Georgia lacks
@@ -61,6 +89,12 @@ class VibeNote(tk.Tk):
         self.configure(bg=PAPER)
 
         self.store = Store()
+        self.layout = self.store.settings.get("layout", "list")
+        if self.layout not in dict(LAYOUTS):
+            self.layout = "list"
+        # the slow light and sheen (his pick: "slow and subtle", with a switch to turn it off)
+        self.motion = self.store.settings.get("motion", True)
+        self._ambient_job = None
         self.guess = sender.TokenGuess(self._read_usage())
         self.projects = projects.find_projects()
         waiting = [p for p in self.projects if self.store.get(p.slug)]
@@ -85,6 +119,7 @@ class VibeNote(tk.Tk):
         self.f_button = tkfont.Font(family=SERIF, size=14, weight="bold")
         self.f_section = tkfont.Font(family=SERIF, size=11, weight="bold")
         self.f_glyph = tkfont.Font(family=GLYPHS, size=13)
+        self.f_sky = [tkfont.Font(family=SERIF, size=n) for n in (9, 11, 13, 15)]
         self.side_w = 280
 
         # The glowing notepad shows while the page is built (his pick, 2026-11-01)
@@ -112,6 +147,9 @@ class VibeNote(tk.Tk):
         self.bind_class("vibenote-window", "<Configure>", self._resized)
         self._rewrap_all()  # notes wrapped before the notepad goes
         loading.finish()
+        self._still()
+        if self.motion:
+            self._ambient_job = self.after(400, self._ambient)
         if view == "usage":  # opened from the mini player (Lando mode)
             self.show("usage")
         elif view == "tips":
@@ -159,8 +197,8 @@ class VibeNote(tk.Tk):
         self.side = side
         self.margin_line = self.body = None  # made with the page, just after
 
-        tk.Label(side, text="VibeNote", font=self.f_brand, bg=SIDEBAR, fg=ACCENT,
-                 anchor="w").pack(fill="x", padx=20, pady=(20, 14))
+        self.brand = Brand(side, self)
+        self.brand.pack(fill="x", pady=(8, 4))
 
         # "Is now a good time for Claude?" (his ask, 2026-11-01) and the live usage bars
         # (his ask, 2026-11-06: "a live usage bar from claude /usage"), at the bottom
@@ -208,6 +246,7 @@ class VibeNote(tk.Tk):
         if self.body is not None:
             self.margin_line.pack_configure(padx=(36 if roomy else 14, 0))
             self.body.pack_configure(padx=(32, 44) if roomy else (18, 18))
+            self.horizon.set_pad(70 if roomy else 34, 44 if roomy else 18)
         if width == self.side_w and not force:
             return
         self.side_w = width
@@ -239,18 +278,20 @@ class VibeNote(tk.Tk):
         page = tk.Frame(self, bg=PAPER)
         page.pack(side="left", fill="both", expand=True)
 
-        # Red margin line down the left of the page, like notebook paper
-        self.margin_line = tk.Frame(page, bg=MARGIN, width=2)
+        # The night city on the horizon (his pick), with the project's title over it
+        self.horizon = Horizon(page, self)
+        self.horizon.pack(side="top", fill="x")
+        self.title_label = self.horizon.title_label
+
+        # The margin down the left of the page, now a copper thread
+        self.margin_line = Thread(page)
         self.margin_line.pack(side="left", fill="y", padx=(36, 0))
 
         body = tk.Frame(page, bg=PAPER)
         self.body = body
-        body.pack(side="left", fill="both", expand=True, padx=(32, 44), pady=(26, 18))
+        body.pack(side="left", fill="both", expand=True, padx=(32, 44), pady=(10, 18))
 
-        self.title_label = tk.Label(body, font=self.f_title, bg=PAPER, fg=INK, anchor="w")
-        self.title_label.pack(fill="x")
-        count_row = tk.Frame(body, bg=PAPER)
-        count_row.pack(fill="x", pady=(2, 18))
+        count_row = self.horizon.count_row
         self.count_label = tk.Label(count_row, font=self.f_small, bg=PAPER, fg=FADED_INK,
                                     anchor="w")
         self.count_label.pack(side="left")
@@ -260,6 +301,14 @@ class VibeNote(tk.Tk):
         # "New chat": a plain Claude chat on the project, no notes (his ask, 2026-11-10)
         self.new_chat_btn = SmallButton(count_row, self.f_small, self._new_chat, ACCENT)
         self.new_chat_btn.pack(side="left", padx=(10, 0))
+        # List · Board · Sky · Timeline · Compact, top right over the sky
+        self.tabs = {}
+        for name, text in LAYOUTS:
+            tab = SmallButton(self.horizon.tabs, self.f_small,
+                              lambda n=name: self._set_layout(n), ACCENT, text)
+            tab.pack(side="left", padx=(6, 0))
+            tab.light(name == self.layout)
+            self.tabs[name] = tab
         self.view = None  # None: the project's notes; else "usage", "find" or "summary"
         self.later_open = False  # the Later box starts folded (his pick, 2026-11-02)
 
@@ -324,6 +373,9 @@ class VibeNote(tk.Tk):
 
         def canvas_resized(e):
             self.canvas.itemconfigure(self._win, width=e.width)
+            sky = getattr(self.notes_frame, "_sky", None)
+            if sky:
+                sky.c.configure(height=max(e.height - 4, 200))
             self._rewrap_soon()
 
         self.canvas.bind("<Configure>", canvas_resized)
@@ -341,6 +393,7 @@ class VibeNote(tk.Tk):
         """What a project's page shows: if none of it changed, the kept page is still right."""
         p = self.current
         return (json.dumps(self.store.all(p.slug), sort_keys=True), self.later_open,
+                self.layout,
                 # its token numbers: these change only when the estimate for it does
                 self.guess.tokens(1000, datetime.now().astimezone(), p.slug),
                 # what worked-on notes really used, which changes as Claude works
@@ -354,6 +407,10 @@ class VibeNote(tk.Tk):
                 self.side_canvas.winfo_containing(x, y)).startswith(str(self.side_canvas)):
             if self.list_box.winfo_height() > self.side_canvas.winfo_height():
                 self.side_canvas.yview_scroll(steps * 8, "units")
+            return
+        sky = getattr(self.notes_frame, "_sky", None)
+        if sky and self.view is None:
+            sky.fly(steps)
             return
         if self.notes_frame.winfo_height() <= self.canvas.winfo_height():
             return
@@ -691,6 +748,9 @@ class VibeNote(tk.Tk):
             self._wrapping = []
             for w in self.notes_frame.winfo_children():
                 w.destroy()
+            self.notes_frame._rows = {}  # note id -> its row, to find it from the other views
+            self.notes_frame._sky = None
+        self.horizon.show_tabs(self.view is None and self.current is not None)
         back = f"← Back to {self.current.title}" if self.current else "← Back"
         if self.view:
             self.page_link.set(back)
@@ -729,6 +789,17 @@ class VibeNote(tk.Tk):
         if not body:
             self._update_buttons()
             return
+        if self.layout != "list":
+            worked = [n for n in sent if n.get("worked")]
+            groups = [("waiting", notes), ("later", later),
+                      ("sent", [n for n in sent if not n.get("worked")]), ("worked", worked),
+                      ("review", review), ("done", done)]
+            {"board": self._draw_board, "sky": self._draw_sky, "timeline": self._draw_timeline,
+             "compact": self._draw_compact}[self.layout](groups)
+            self._update_buttons()
+            if not keep_scroll:
+                self.canvas.yview_moveto(0)
+            return
 
         if notes or sent:
             self._tick_all_row(notes, sent)
@@ -763,6 +834,7 @@ class VibeNote(tk.Tk):
         if done:
             self._heading(f"Done ({len(done)})")
             self._draw_done(done)
+            self.notes_frame._rows["__done"] = self.notes_frame.pack_slaves()[-1]
 
         self._update_buttons()
         if not keep_scroll:
@@ -1025,6 +1097,7 @@ class VibeNote(tk.Tk):
     def _draw_note(self, note):
         row = tk.Frame(self.notes_frame, bg=PAPER)
         row.pack(fill="x")
+        self.notes_frame._rows[note["id"]] = row
         line = tk.Frame(row, bg=PAPER)
         line.pack(fill="x", pady=8)
 
@@ -1318,6 +1391,11 @@ class VibeNote(tk.Tk):
         for label in self._wrapping:
             if not label.winfo_exists():
                 continue
+            if hasattr(label, "_cols"):  # a Board card: a quarter of the page
+                width = self._card_wrap()
+                if abs(width - int(label.cget("wraplength") or 0)) > 3:
+                    label.configure(wraplength=width)
+                continue
             try:
                 width = max(self._room(label, known) - 12, 50)
             except tk.TclError:  # not packed (yet)
@@ -1343,6 +1421,7 @@ class VibeNote(tk.Tk):
         done = note["status"] == "done" or review
         line = tk.Frame(self.notes_frame, bg=PAPER)
         line.pack(fill="x", pady=5)
+        self.notes_frame._rows[note["id"]] = line
         # ✓ finished, → on the list
         tk.Label(line, text="✓" if done else "→", font=self.f_todo, bg=PAPER,
                  fg=WORK_GREEN if review else ACCENT if done else FADED_INK,
@@ -1422,6 +1501,7 @@ class VibeNote(tk.Tk):
         for note in later:
             line = tk.Frame(self.notes_frame, bg=PAPER)
             line.pack(fill="x", pady=2)
+            self.notes_frame._rows[note["id"]] = line
             tk.Label(line, text="◦", font=self.f_todo, bg=PAPER, fg=FADED_INK,
                      width=2).pack(side="left", padx=(0, 6), anchor="n")
             remove = tk.Label(line, text="×", font=self.f_todo, bg=PAPER, fg=PAPER,
@@ -1483,6 +1563,10 @@ class VibeNote(tk.Tk):
                            ("item", "date"))
             box.insert("end", "\n", "item")
         box.delete("end-2c")  # no blank line after the last one
+        self._finish_block(box)
+
+    def _finish_block(self, box):
+        """A read-only block of text on the page, as tall as its lines."""
         box.configure(state="disabled")
         # Drag to pick text, Ctrl+C to copy (his ask, 2026-11-06); no scrolling of its own
         box.bindtags((str(box), "Text", "all"))
@@ -1504,6 +1588,292 @@ class VibeNote(tk.Tk):
                 box.configure(height=lines)
 
         box.bind("<Configure>", fit)
+
+    # --- views (his ask, 2026-11-12: "more view types") ------------------------------
+
+    def _set_layout(self, name):
+        if name == self.layout and self.view is None:
+            return
+        self.layout = name
+        self.store.settings["layout"] = name
+        self.store.save()
+        for n, tab in self.tabs.items():
+            tab.light(n == name)
+        if self.view is not None:
+            self.show(None)
+        else:
+            self.refresh()
+
+    def _goto_note(self, note):
+        """From Board, Sky, Timeline or Compact: that note in the List, lit for a moment."""
+        if note["status"] == "later":
+            self.later_open = True
+        self._set_layout("list")
+        self.update_idletasks()
+        rows = getattr(self.notes_frame, "_rows", {})
+        target = rows.get(note["id"]) or (rows.get("__done") if note["status"] == "done"
+                                          else None)
+        if target is None or not target.winfo_exists():
+            return
+        total = max(self.notes_frame.winfo_height(), 1)
+        self.canvas.yview_moveto(max(0, target.winfo_y() - 90) / total)
+        self._flash(target)
+
+    def _flash(self, widget):
+        lit = []
+
+        def walk(w):
+            for c in w.winfo_children():
+                walk(c)
+            if isinstance(w, tk.Label) and w.cget("fg") in (INK, FADED_INK):
+                lit.append((w, w.cget("fg")))
+                w.configure(fg=ACCENT_DARK)
+
+        walk(widget)
+        self.after(1400, lambda: [w.configure(fg=fg) for w, fg in lit if w.winfo_exists()])
+
+    def _card_wrap(self):
+        return max(80, (self.canvas.winfo_width() - 4 * 12) // 4 - 26)
+
+    def _draw_board(self, groups):
+        """Board: the notes as silk cards in four columns."""
+        g = dict(groups)
+        cols = [("Waiting", [("waiting", n) for n in g["waiting"]]
+                 + [("later", n) for n in g["later"]]),
+                ("Sent", [("sent", n) for n in g["sent"]]),
+                ("Worked on", [("worked", n) for n in g["worked"]]
+                 + [("review", n) for n in g["review"]]),
+                ("Done", [("done", n) for n in g["done"]])]
+        grid = tk.Frame(self.notes_frame, bg=PAPER)
+        grid.pack(fill="x", pady=(4, 0))
+        for i, (title, items) in enumerate(cols):
+            grid.columnconfigure(i, weight=1, uniform="board")
+            col = tk.Frame(grid, bg=PAPER)
+            col.grid(row=0, column=i, sticky="new", padx=(0 if i == 0 else 6, 0 if i == 3 else 6))
+            tk.Label(col, text=f"{title} · {len(items)}", font=self.f_head, bg=PAPER, fg=ACCENT,
+                     anchor="w").pack(fill="x", pady=(0, 6))
+            if not items:
+                tk.Label(col, text="Nothing here", font=self.f_small, bg=PAPER, fg=FADED_INK,
+                         anchor="w").pack(fill="x")
+            for kind, note in items[:30]:
+                self._card(col, note, kind)
+            if len(items) > 30:
+                SmallButton(col, self.f_small, lambda: self._set_layout("list"), ACCENT,
+                            f"{len(items) - 30} more in List ›").pack(anchor="w", pady=4)
+
+    def _card(self, col, note, kind):
+        card = tk.Frame(col, bg=CARD, highlightthickness=1, highlightbackground=RULE, padx=10,
+                        pady=8)
+        card.pack(fill="x", pady=4)
+        faded = kind in ("done", "later", "review")
+        text = tk.Label(card, text=note["text"], font=self.f_todo, bg=CARD,
+                        fg=FADED_INK if faded else INK, anchor="w", justify="left",
+                        cursor="xterm" if kind == "waiting" else "hand2")
+        text._cols = 4
+        text.configure(wraplength=self._card_wrap())
+        text.pack(fill="x")
+        self._wrapping.append(text)
+        foot = tk.Frame(card, bg=CARD)
+        foot.pack(fill="x", pady=(5, 0))
+        when = note.get("done") or note.get("worked") or note.get("sent") or note.get("added")
+        mark = tk.Label(foot, text=f"{MARKS[kind]} {WORDS[kind]}"
+                        + (f" · {nice_date(when)}" if when else ""), font=self.f_small, bg=CARD,
+                        fg=WORK_GREEN if kind in ("worked", "review") else FADED_INK, anchor="w")
+        mark.pack(side="left")
+        if "size" in note and kind not in ("done", "review"):
+            tk.Label(foot, text=sender.short_tokens(self._tokens(note)), font=self.f_small,
+                     bg=CARD, fg=FADED_INK).pack(side="right")
+        parts = (card, text, foot, mark)
+        for w in parts:
+            w.bind("<Enter>", lambda e: card.configure(highlightbackground=ACCENT), add="+")
+            w.bind("<Leave>", lambda e: card.configure(highlightbackground=RULE), add="+")
+            if kind not in ("done", "review"):
+                w.bind("<Button-3>", lambda e: self.move_menu(note, e))
+        if kind == "waiting":
+            self._selectable(text, lambda: self.edit_note(note, card, text))
+        else:
+            for w in parts:
+                w.bind("<Button-1>", lambda e: self._goto_note(note))
+
+    def _draw_sky(self, groups):
+        """Sky: the notes as cards in a deep night, near and bright to far and dim."""
+        cards = []
+        depth = {"waiting": (1.2, 0.18, 30), "sent": (2.5, 0.14, 30), "worked": (2.3, 0.14, 30),
+                 "later": (3.9, 0.2, 12), "review": (4.4, 0.2, 12), "done": (4.9, 0.2, 25)}
+        for kind, notes in groups:
+            start, step, most = depth[kind]
+            for i, note in enumerate(notes[:most]):
+                cards.append((note, kind, start + i * step))
+        if cards:  # the nearest notes always start up close, even if they are all done
+            near = min(z for _, _, z in cards) - 1.2
+            cards = [(n, k, z - near) for n, k, z in cards]
+        h = max(self.canvas.winfo_height() - 4, 200)
+        c = tk.Canvas(self.notes_frame, bg=PAPER, highlightthickness=0, height=h)
+        c.pack(fill="x")
+        self.notes_frame._sky = SkyView(self, c, cards)
+
+    def _text_block(self, wrap="word"):
+        box = tk.Text(self.notes_frame, bg=PAPER, fg=FADED_INK, font=self.f_todo, wrap=wrap,
+                      relief="flat", bd=0, highlightthickness=0, padx=0, pady=0, height=1,
+                      cursor="arrow", spacing3=5, selectbackground=SIDEBAR_PICKED,
+                      selectforeground=INK, inactiveselectbackground=SIDEBAR_PICKED)
+        for kind in MARKS:
+            box.tag_configure("m_" + kind, foreground=WORK_GREEN if kind in ("worked", "review")
+                              else ACCENT if kind in ("waiting", "done") else FADED_INK)
+        box.tag_configure("open", foreground=INK)
+        box.tag_configure("small", font=self.f_small, foreground=FADED_INK)
+        box.tag_configure("hover", foreground=ACCENT_DARK)
+        return box
+
+    def _link(self, box, tag, note):
+        """A line in a text block that opens its note in the List."""
+        box.tag_bind(tag, "<Enter>", lambda e: (box.tag_add("hover", f"{tag}.first",
+                                                            f"{tag}.last"),
+                                                box.configure(cursor="hand2")))
+        box.tag_bind(tag, "<Leave>", lambda e: (box.tag_remove("hover", "1.0", "end"),
+                                                box.configure(cursor="arrow")))
+        box.tag_bind(tag, "<ButtonRelease-1>", lambda e: (
+            not box.tag_ranges("sel") and self._goto_note(note)))
+
+    def _draw_timeline(self, groups):
+        """Timeline: like a diary, newest day first."""
+        entries = []
+        for kind, notes in groups:
+            for n in notes:
+                day = (n.get("done") or n.get("review") or n.get("worked") or n.get("sent")
+                       or n.get("added") or "")
+                entries.append((str(day)[:10], kind, n))
+        entries.sort(key=lambda e: e[0], reverse=True)
+        if not entries:
+            tk.Label(self.notes_frame, text="Nothing yet. Write a note above.",
+                     font=self.f_small, bg=PAPER, fg=FADED_INK, anchor="w").pack(fill="x")
+            return
+        box = self._text_block()
+        indent = self.f_todo.measure("◐") + 16
+        box.tag_configure("day", font=self.f_head, foreground=ACCENT, spacing1=18, spacing3=6)
+        box.tag_configure("item", lmargin1=8, lmargin2=indent + 8, tabs=(indent + 8,))
+        last = None
+        for i, (day, kind, n) in enumerate(entries):
+            if day != last:
+                try:
+                    title = date.fromisoformat(day).strftime("%A %-d %B")
+                except ValueError:
+                    title = "Earlier"
+                box.insert("end", title + "\n", "day")
+                last = day
+            tag = f"n{i}"
+            box.insert("end", MARKS[kind], ("item", "m_" + kind, tag),
+                       "\t" + n["text"], ("item", tag) + (("open",) if kind in
+                                                         ("waiting", "sent", "worked") else ()),
+                       "   " + WORDS[kind] + "\n", ("item", "small", tag))
+            self._link(box, tag, n)
+        box.delete("end-2c")
+        self._finish_block(box)
+
+    def _draw_compact(self, groups):
+        """Compact: one thin line per note, to see lots at once."""
+        titles = {"waiting": "WAITING", "later": "LATER", "sent": "SENT",
+                  "worked": "WORKED ON", "review": "WITH LANDO", "done": "DONE"}
+        if not any(notes for _, notes in groups):
+            tk.Label(self.notes_frame, text="Nothing yet. Write a note above.",
+                     font=self.f_small, bg=PAPER, fg=FADED_INK, anchor="w").pack(fill="x")
+            return
+        box = self._text_block(wrap="none")
+        box.configure(spacing3=2)
+        mark_w = self.f_todo.measure("◐") + 12
+        size_w = self.f_small.measure("~999k") + 14
+        box.tag_configure("head", font=self.f_section, foreground=ACCENT, spacing1=14,
+                          spacing3=5)
+        box.tag_configure("item", lmargin1=6, tabs=(mark_w + 6, mark_w + 6 + size_w))
+        i = 0
+        room = self.canvas.winfo_width() - mark_w - size_w - 30
+
+        def one_line(text):  # cut to the width with "…", not mid-letter at the edge
+            if room < 100 or self.f_todo.measure(text) <= room:
+                return text
+            text = text[:int(len(text) * room / self.f_todo.measure(text))]
+            while text and self.f_todo.measure(text + "…") > room:
+                text = text[:-3]
+            return text.rstrip() + "…"
+
+        for kind, notes in groups:
+            if not notes:
+                continue
+            box.insert("end", f"{titles[kind]} · {len(notes)}\n", "head")
+            for n in notes:
+                tag = f"n{i}"
+                i += 1
+                size = (sender.short_tokens(self._tokens(n))
+                        if "size" in n and kind not in ("done", "review") else "")
+                box.insert("end", MARKS[kind], ("item", "m_" + kind, tag),
+                           "\t" + size, ("item", "small", tag),
+                           "\t" + one_line(n["text"]) + "\n", ("item", tag) + (
+                               ("open",) if kind in ("waiting", "sent", "worked") else ()))
+                self._link(box, tag, n)
+        box.delete("end-2c")
+        self._finish_block(box)
+
+    # --- slow light and sheen (his pick, 2026-11-12: "slow and subtle", with a switch) ----
+
+    def _ambient(self):
+        self._ambient_job = None
+        if not self.motion:
+            return
+        # Slow things need few frames: 5 a second, quicker only while the mouse moves (so
+        # the parallax follows it), and fewer when VibeNote isn't the window in use
+        wait = 200
+        try:
+            if self.winfo_viewable() and not getattr(self, "_drag", None):
+                pointer = self.winfo_pointerxy()
+                moving = pointer != getattr(self, "_pointer", None)
+                self._pointer = pointer
+                self._frame(time.monotonic(), pointer)
+                wait = 60 if moving else 200 if self.focus_displayof() else 500
+        except (tk.TclError, KeyError):
+            return
+        self._ambient_job = self.after(wait, self._ambient)
+
+    def _frame(self, t, pointer=None):
+        x, y = pointer or self.winfo_pointerxy()
+        rx = min(max((x - self.winfo_rootx()) / max(self.winfo_width(), 1), 0), 1)
+        ry = min(max((y - self.winfo_rooty()) / max(self.winfo_height(), 1), 0), 1)
+        top = self.canvas.yview()[0] if self.view is None else 0.0
+        self.horizon.animate(t, rx, top)
+        # The silk moves under a pixel a second, so once a second is enough: each step
+        # makes the whole skyline behind it redraw
+        if t - getattr(self, "_silk_at", -9) >= 1.0:
+            self._silk_at = t
+            self.horizon.drift(t)
+            self.brand.animate(t)
+        self.margin_line.animate(t)
+        sky = getattr(self.notes_frame, "_sky", None)
+        if sky and self.view is None:
+            sky.animate(t, rx, ry)
+
+    def _still(self):
+        """Everything drawn once, standing still (motion off, or before it starts)."""
+        try:
+            self.horizon.animate(0.0, 0.5, 0.0)
+            self.horizon.drift(0.0)
+            self.brand.animate(0.0)
+            self.margin_line.animate(None)
+        except tk.TclError:
+            pass
+
+    def toggle_motion(self):
+        self.motion = not self.motion
+        self.store.settings["motion"] = self.motion
+        self.store.save()
+        self.brand.show_switch(self.motion)
+        if self.motion and self._ambient_job is None:
+            self._ambient_job = self.after(80, self._ambient)
+        if not self.motion:
+            self._still()
+            sky = getattr(self.notes_frame, "_sky", None)
+            if sky:
+                sky.render()
+        self.say("Motion on: the city and the silk move slowly." if self.motion
+                 else "Motion off: everything stands still.")
 
     def _update_buttons(self):
         if self.sending is not None or self.current is None:
@@ -1708,13 +2078,15 @@ class VibeNote(tk.Tk):
 
     def edit_note(self, note, line, label):
         """Swap the note for a text box; Enter or clicking away saves it, Esc leaves it as it was."""
+        slaves = line.pack_slaves()
+        after = slaves[slaves.index(label) + 1:] if label in slaves else []
         label.pack_forget()
         box = tk.Text(line, font=self.f_note, bg=FIELD, fg=INK, relief="flat", height=1,
                       wrap="word", insertbackground=INK, highlightthickness=1, padx=1, pady=1,
                       highlightbackground=RULE, highlightcolor=ACCENT)
         box.editing = True  # the 10 s to-do re-read waits while he edits
         box.insert("1.0", note["text"])
-        box.pack(side="left", fill="x", expand=True)
+        box.pack(side="left", fill="x", expand=True, **({"before": after[0]} if after else {}))
         self._growing(box, most=20)  # the whole note, however long
         box.focus_set()
         box.mark_set("insert", "end-1c")
@@ -1860,20 +2232,390 @@ class VibeNote(tk.Tk):
         self.refresh(keep_scroll=True)
 
 
+# --- the night city and the silk (his ask, 2026-11-12: "feel made of an exotic fabric ...
+# silk pajamas in a night city utopia, add light animations for a sense of space, add
+# perspective"). All drawn with plain canvas shapes: the installed VibeNote has only Tk.
+
+class Silk:
+    """A silk ribbon drifting on a canvas: three nested bands, its edge to a lighter core,
+    which reads as a soft sheen; its width swells and narrows like a ribbon turning."""
+
+    def __init__(self, canvas, colours, y, amp, thick, speed, phase, tags=()):
+        self.c, self.y, self.amp, self.thick = canvas, y, amp, thick
+        self.speed, self.phase = speed, phase
+        self.items = [canvas.create_polygon(0, 0, 0, 0, 0, 0, smooth=True, fill=col,
+                                            outline="", tags=("silk",) + tuple(tags))
+                      for col in colours]
+
+    def shape(self, t, width):
+        n = 14
+        sp, ph = self.speed, self.phase
+        for k, item in enumerate(self.items):
+            th = self.thick * (1 - k * 0.32)
+            top, bottom = [], []
+            for i in range(n + 1):
+                u = i / n
+                x = -60 + (width + 120) * u
+                y = (self.y + self.amp * math.sin(u * 2.4 + t * sp + ph)
+                     + self.amp * 0.35 * math.sin(u * 5.3 - t * sp * 0.7))
+                half = th * (0.18 + 0.82 * abs(math.sin(u * 2.9 + t * sp * 0.45 + ph)))
+                top.append((x, y - half))
+                bottom.append((x, y + half))
+            pts = [v for p in top + bottom[::-1] for v in p]
+            self.c.coords(item, *pts)
+
+
+class CanvasLabel:
+    """The page title, drawn on the horizon; answers .configure(text=...) like a Label."""
+
+    def __init__(self, canvas, *items):
+        self.c, self.items = canvas, items
+
+    def configure(self, text=None, **_):
+        if text is not None:
+            for item in self.items:
+                self.c.itemconfigure(item, text=text)
+
+    config = configure
+
+
+class Horizon(tk.Canvas):
+    """Across the top of the page: a night sky with silk ribbons, a far city skyline in
+    three layers whose windows glow and twinkle, and a floor in perspective running to it.
+    The layers slide at different speeds as the mouse moves and the notes scroll."""
+
+    H, HY, FLOOR = 186, 120, 40   # height, the horizon line, the flat strip at the bottom
+    SPAN = 2600                   # drawn this wide, so resizing never shows an edge
+
+    def __init__(self, parent, app):
+        super().__init__(parent, bg=PAPER, height=self.H, highlightthickness=0)
+        self.app, self.pad, self.pad_r, self.width_now = app, 70, 44, 0
+        self.shift = {"far": 0.0, "mid": 0.0, "near": 0.0}
+        self.last_twinkle = 0.0
+        rng = random.Random(11)
+        n = 16
+        for i in range(n):
+            self.create_rectangle(0, self.HY * i / n, self.SPAN, self.HY * (i + 1) / n + 1,
+                                  fill=self.sky_at(self.HY * (i + 0.5) / n), outline="")
+        self.glow_anchor = self.create_line(0, 0, 0, 0, fill="")  # the glow goes just above this
+        for _ in range(46):
+            x, y = rng.uniform(0, self.SPAN), rng.uniform(4, self.HY - 50)
+            self.create_oval(x, y, x + 1.6, y + 1.6, outline="", tags=("far", "star"),
+                             fill=blend(SKY_TOP, INK, rng.uniform(0.12, 0.3)))
+        self.silk = [Silk(self, SILK_COPPER, 40, 9, 16, 0.11, 1.7),
+                     Silk(self, SILK_GREEN, 70, 12, 22, 0.08, 0.0)]
+        self.windows = []
+        for layer, hmin, hmax, wmin, wmax, lit in (("far", 26, 66, 14, 34, 0.0),
+                                                    ("mid", 16, 46, 20, 44, 0.05),
+                                                    ("near", 8, 30, 28, 60, 0.08)):
+            x = -80
+            while x < self.SPAN:
+                w, h = rng.randint(wmin, wmax), rng.randint(hmin, hmax)
+                top = self.HY - h
+                colour = CITY[layer]
+                self.create_rectangle(x, top, x + w, self.HY, fill=colour, outline="",
+                                      tags=(layer, "city"))
+                if rng.random() < 0.28:  # a spire or a stepped top
+                    sw = max(3, w // 4)
+                    sx = x + rng.randint(2, max(2, w - sw - 2))
+                    sh = rng.randint(5, 16)
+                    self.create_rectangle(sx, top - sh, sx + sw, top, fill=colour, outline="",
+                                          tags=(layer, "city"))
+                for wy in range(int(top) + 4, self.HY - 3, 6):
+                    for wx in range(x + 3, x + w - 3, 6):
+                        if rng.random() < lit:
+                            self.windows.append(self.create_rectangle(
+                                wx, wy, wx + 2, wy + 2, outline="", tags=(layer, "win"),
+                                fill=rng.choice(LIGHTS) if rng.random() < 0.8 else WINDOW_OFF))
+                x += w + rng.randint(0, 7)
+        self.title_shadow = self.create_text(0, 0, anchor="w", font=app.f_title, fill=SKY_TOP)
+        self.title = self.create_text(0, 0, anchor="w", font=app.f_title, fill=INK)
+        self.title_label = CanvasLabel(self, self.title_shadow, self.title)
+        self.count_row = tk.Frame(self, bg=PAPER)
+        self.count_win = self.create_window(0, 0, window=self.count_row, anchor="sw")
+        self.tabs = tk.Frame(self, bg=self.sky_at(26))
+        self.tabs_win = self.create_window(0, 0, window=self.tabs, anchor="ne")
+        self.rng = rng
+        self.bind("<Configure>", lambda e: self._place(e.width))
+
+    def sky_at(self, y):
+        return blend(SKY_TOP, SKY_LOW, (y / self.HY) ** 1.6)
+
+    def set_pad(self, left, right):
+        if (left, right) != (self.pad, self.pad_r):
+            self.pad, self.pad_r = left, right
+            self._place(self.width_now)
+
+    def show_tabs(self, on):
+        self.itemconfigure(self.tabs_win, state="normal" if on else "hidden")
+
+    def _place(self, width):
+        """The parts that depend on the width: the glow, the floor and where things sit."""
+        self.width_now = width
+        self.delete("floor", "glow")
+        cx, hy, bottom = width * 0.58, self.HY, self.H - self.FLOOR
+        for i, (rx, ry) in enumerate(((340, 46), (240, 34), (150, 24), (80, 15))):
+            self.create_oval(cx - rx, hy - ry, cx + rx, hy + ry * 0.5, outline="",
+                             fill=blend(SKY_LOW, HAZE, 0.25 + i * 0.22), tags=("glow",))
+        self.tag_raise("glow", self.glow_anchor)
+        n = 8
+        for i in range(n):  # the floor darkens towards the page
+            y0 = hy + (bottom - hy) * i / n
+            self.create_rectangle(0, y0, width, y0 + (bottom - hy) / n + 1, outline="",
+                                  fill=blend(blend(SKY_LOW, HAZE, 0.3), PAPER, (i + 1) / n),
+                                  tags=("floor",))
+        self.create_rectangle(0, bottom, width, self.H, fill=PAPER, outline="", tags=("floor",))
+        line = blend(PAPER, MARGIN, 0.55)
+        for k in range(-14, 15):  # lines running to the vanishing point
+            self.create_line(cx, hy, cx + k * 120, bottom, fill=line, tags=("floor",))
+        for i in range(1, 6):
+            y = hy + (bottom - hy) * (i / 5) ** 2
+            self.create_line(0, y, width, y, fill=blend(PAPER, MARGIN, 0.2 + i * 0.07),
+                             tags=("floor",))
+        self.create_line(0, hy, width, hy, fill=blend(HAZE, ACCENT, 0.25), tags=("floor",))
+        self.coords(self.title_shadow, self.pad + 2, 70)
+        self.coords(self.title, self.pad, 68)
+        self.coords(self.count_win, self.pad, self.H - 6)
+        self.coords(self.tabs_win, width - self.pad_r, 12)
+        self.tag_raise(self.title_shadow)
+        self.tag_raise(self.title)
+
+    def drift(self, t):
+        for ribbon in self.silk:
+            ribbon.shape(t, max(self.width_now, 1))
+
+    def animate(self, t, rx, scroll):
+        for layer, depth in (("far", 8), ("mid", 16), ("near", 28)):
+            want = -(rx - 0.5) * depth - scroll * depth * 1.5
+            if abs(want - self.shift[layer]) > 0.4:
+                self.move(layer, want - self.shift[layer], 0)
+                self.shift[layer] = want
+        if t - self.last_twinkle > 0.45 and self.windows:  # a window or two lights or dims
+            self.last_twinkle = t
+            for _ in range(2):
+                self.itemconfigure(self.rng.choice(self.windows),
+                                   fill=self.rng.choice(LIGHTS + [WINDOW_OFF, WINDOW_OFF]))
+
+
+class Thread(tk.Canvas):
+    """The page's margin: a copper thread, with a glint that runs down it now and then."""
+
+    def __init__(self, parent):
+        super().__init__(parent, width=2, bg=MARGIN, highlightthickness=0)
+        self.glint = [self.create_rectangle(0, -200, 2, -200, outline="", fill=c)
+                      for c in (blend(MARGIN, ACCENT_DARK, 0.3), blend(MARGIN, ACCENT_DARK, 0.6))]
+
+    def animate(self, t):
+        if t is None:
+            for item in self.glint:
+                self.coords(item, 0, -200, 2, -200)
+            return
+        h = self.winfo_height()
+        u = (t % 11.0) / 11.0 * 1.8  # runs down, then rests a while
+        y = u * (h + 160) - 80
+        self.coords(self.glint[0], 0, y - 60, 2, y + 60)
+        self.coords(self.glint[1], 0, y - 18, 2, y + 18)
+
+
+class Brand(tk.Canvas):
+    """VibeNote's name at the top of the sidebar, on a small drifting ribbon of silk, with
+    the motion switch (✦ on, ✧ off) beside it."""
+
+    def __init__(self, parent, app):
+        super().__init__(parent, bg=SIDEBAR, height=64, highlightthickness=0)
+        self.app = app
+        self.silk = Silk(self, [blend(SIDEBAR, c, 0.75) for c in SILK_GREEN], 34, 6, 14,
+                         0.1, 2.2)
+        self.name = self.create_text(20, 34, anchor="w", text="VibeNote", font=app.f_brand,
+                                     fill=ACCENT)
+        self.switch = self.create_text(0, 34, anchor="e", font=app.f_glyph)
+        self.tag_bind(self.switch, "<Button-1>", lambda e: app.toggle_motion())
+        self.tag_bind(self.switch, "<Enter>", lambda e: self.configure(cursor="hand2"))
+        self.tag_bind(self.switch, "<Leave>", lambda e: self.configure(cursor=""))
+        self.show_switch(app.motion)
+        self.bind("<Configure>", lambda e: (self.coords(self.switch, e.width - 16, 34),
+                                            self.silk.shape(0, e.width)))
+
+    def show_switch(self, on):
+        self.itemconfigure(self.switch, text="✦" if on else "✧",
+                           fill=ACCENT if on else FADED_INK)
+
+    def animate(self, t):
+        self.silk.shape(t, max(self.winfo_width(), 1))
+
+
+class SkyView:
+    """Sky (his pick, 2026-11-12): the notes as small glowing cards in a deep night, drawn
+    in perspective: waiting ones nearest and brightest, then sent and worked on, Later, and
+    done ones far off and dim (newer nearer). The wheel flies through them, the mouse tilts
+    the view a little, hovering shows a card's whole text, and a click opens it in List."""
+
+    WIDTHS = [120, 160, 200, 240]
+
+    def __init__(self, app, canvas, cards):
+        self.app, self.c = app, canvas
+        self.cam, self.t, self.rx, self.ry = 0.0, 0.0, 0.5, 0.5
+        rng = random.Random(5)
+        self.stars = [(rng.random(), rng.random() * 0.8, rng.uniform(0.1, 0.35),
+                       canvas.create_oval(0, 0, 0, 0, outline="", tags=("star",)))
+                      for _ in range(70)]
+        for fx, fy, glow, item in self.stars:
+            canvas.itemconfigure(item, fill=blend(PAPER, INK, glow))
+        self.grid = []
+        self.cards = []
+        for note, kind, z in cards:
+            r = random.Random(note["id"])
+            tag = f"card{len(self.cards)}"
+            edge = {"waiting": ACCENT, "sent": FADED_INK, "worked": WORK_GREEN,
+                    "later": RULE, "review": WORK_GREEN, "done": RULE}[kind]
+            ink = INK if kind in ("waiting", "sent", "worked") else FADED_INK
+            rect = canvas.create_rectangle(0, 0, 0, 0, tags=(tag, "card"))
+            text = (note["text"] if len(note["text"]) <= 90
+                    else note["text"][:88].rstrip() + "…")
+            item = canvas.create_text(0, 0, text=text, justify="left", tags=(tag, "card"))
+            # spread wider the farther off, so far cards don't bunch up in the middle
+            spread = 0.55 + 0.45 * z
+            card = {"note": note, "kind": kind, "z": z, "x": r.uniform(-1.35, 1.35) * spread,
+                    "y": r.uniform(-0.75, 0.6) * spread, "ph": r.uniform(0, 6.3), "rect": rect,
+                    "text": item, "tag": tag, "edge": edge, "ink": ink, "level": None,
+                    "size": (0, 0)}
+            self.cards.append(card)
+            canvas.tag_bind(tag, "<Enter>", lambda e, c=card: self._hover(c))
+            canvas.tag_bind(tag, "<Leave>", lambda e, c=card: self._hover(None, c))
+            canvas.tag_bind(tag, "<Button-1>", lambda e, n=note: app._goto_note(n))
+        self.most = max([c["z"] for c in self.cards] + [1.0])
+        self.legend = canvas.create_text(8, 10, anchor="nw", font=app.f_small, fill=FADED_INK,
+                                         text="Near: waiting · then sent · far off: done. "
+                                              "Scroll to fly through." if self.cards else
+                                              "No notes yet. Write one above.")
+        self.info_bg = canvas.create_rectangle(0, 0, 0, 0, fill=FIELD, outline=ACCENT,
+                                               state="hidden")
+        self.info = canvas.create_text(0, 0, anchor="s", font=app.f_todo, fill=INK,
+                                       justify="left", state="hidden")
+        self._order()
+        canvas.bind("<Configure>", lambda e: self.render())
+        self.render()
+
+    def _order(self):
+        for card in sorted(self.cards, key=lambda c: -c["z"]):
+            self.c.tag_raise(card["tag"])
+        self.c.tag_raise(self.info_bg)
+        self.c.tag_raise(self.info)
+
+    def fly(self, steps):
+        self.cam = min(max(self.cam + steps * 0.22, -0.8), self.most - 0.6)
+        self.render()
+
+    def animate(self, t, rx, ry):
+        self.t, self.rx, self.ry = t, rx, ry
+        self.render()
+
+    def render(self):
+        c = self.c
+        w = c.winfo_width() if c.winfo_width() > 10 else self.app.canvas.winfo_width()
+        h = int(c.cget("height"))
+        tilt_x, tilt_y = self.rx - 0.5, self.ry - 0.5
+        cx, cy, scale = w / 2, h * 0.47, w * 0.42
+        view = (w, h, round(tilt_x * 40), round(tilt_y * 40))
+        if view != getattr(self, "_star_key", None):
+            self._star_key = view
+            for fx, fy, glow, item in self.stars:
+                x, y = fx * w - tilt_x * 10, fy * h - tilt_y * 6
+                c.coords(item, x, y, x + 1.6, y + 1.6)
+        self._floor(w, h, cx, tilt_x)
+        t = self.t
+        for card in self.cards:
+            d = card["z"] - self.cam
+            if d < 0.35:
+                self._show(card, False)
+                continue
+            f = 1 / d
+            x = card["x"] + 0.03 * math.sin(t * 0.33 + card["ph"])
+            y = card["y"] + 0.02 * math.cos(t * 0.27 + card["ph"] * 1.3)
+            sx = cx + x * scale * f - tilt_x * 70 * f
+            sy = cy + y * scale * 0.75 * f - tilt_y * 40 * f
+            level = 3 if f > 0.72 else 2 if f > 0.45 else 1 if f > 0.28 else 0
+            if level != card["level"]:
+                card["level"] = level
+                bright = (0.3, 0.5, 0.75, 1.0)[level]
+                c.itemconfigure(card["text"], font=self.app.f_sky[level],
+                                width=self.WIDTHS[level], fill=blend(PAPER, card["ink"], bright))
+                c.itemconfigure(card["rect"], fill=blend(PAPER, CARD, bright),
+                                outline=blend(PAPER, card["edge"], bright * 0.8))
+                c.coords(card["text"], 0, 0)
+                box = c.bbox(card["text"]) or (0, 0, 0, 0)
+                card["size"] = (box[2] - box[0], box[3] - box[1])
+                card["at"] = None
+            bw, bh = card["size"]
+            if sx + bw / 2 < -20 or sx - bw / 2 > w + 20 or sy < -40 or sy > h + 40:
+                self._show(card, False)
+                continue
+            self._show(card, True)
+            at = (round(sx), round(sy))
+            if card.get("at") == at:
+                continue  # hasn't moved a whole pixel: nothing to redraw
+            card["at"] = at
+            c.coords(card["text"], sx, sy)
+            c.coords(card["rect"], sx - bw / 2 - 9, sy - bh / 2 - 6, sx + bw / 2 + 9,
+                     sy + bh / 2 + 6)
+
+    def _show(self, card, on):
+        if card.get("shown") != on:
+            card["shown"] = on
+            self.c.itemconfigure(card["tag"], state="normal" if on else "hidden")
+
+    def _floor(self, w, h, cx, tilt_x):
+        """Faint lines in perspective under the cards, to the same vanishing point."""
+        key = (w, h, round(tilt_x * 20))
+        if getattr(self, "_floor_key", None) == key:
+            return
+        self._floor_key = key
+        self.c.delete("floor")
+        vx, vy = cx - tilt_x * 30, h * 0.45
+        colour = blend(PAPER, MARGIN, 0.35)
+        for k in range(-10, 11):
+            self.c.create_line(vx, vy, vx + k * 140, h, fill=colour, tags=("floor",))
+        for i in range(1, 6):
+            y = vy + (h - vy) * (i / 5) ** 2
+            self.c.create_line(0, y, w, y, fill=colour, tags=("floor",))
+        self.c.tag_lower("floor")
+
+    def _hover(self, card, left=None):
+        c = self.c
+        if card is None:
+            if left is not None:
+                c.itemconfigure(left["rect"], width=1)
+            c.itemconfigure(self.info, state="hidden")
+            c.itemconfigure(self.info_bg, state="hidden")
+            return
+        c.itemconfigure(card["rect"], width=2)
+        note = card["note"]
+        when = (note.get("done") or note.get("worked") or note.get("sent")
+                or note.get("added"))
+        w, h = c.winfo_width(), int(c.cget("height"))
+        c.itemconfigure(self.info, state="normal", width=w - 80,
+                        text=note["text"] + f"\n{WORDS[card['kind']]}"
+                        + (f" · {nice_date(when)}" if when else ""))
+        c.coords(self.info, w / 2, h - 16)
+        box = c.bbox(self.info)
+        c.coords(self.info_bg, box[0] - 12, box[1] - 8, box[2] + 12, box[3] + 8)
+        c.itemconfigure(self.info_bg, state="normal")
+
+
 class Loading(tk.Canvas):
     """The VibeNote notepad (assets/icon.svg, in pixels), softly pulsing in the middle of the
     window while it opens. Its page is dimmed from the icon's: he is light sensitive."""
 
     PIXELS = [  # x, y, width, height, colour, on the 32 x 32 grid of the icon
-        (7, 6, 18, 23, "#1d3b2a"), (8, 7, 16, 21, "#aac59d"), (8, 7, 16, 1, "#bcd6b0"),
-        (8, 27, 16, 1, "#8fb083"), (23, 8, 1, 19, "#9bb98e"), (8, 8, 16, 3, "#4f9e66"),
-        (8, 10, 16, 1, "#3a8653"),
-        (10, 4, 2, 5, "#1d3b2a"), (10, 5, 1, 3, "#86c895"), (15, 4, 2, 5, "#1d3b2a"),
-        (15, 5, 1, 3, "#86c895"), (20, 4, 2, 5, "#1d3b2a"), (20, 5, 1, 3, "#86c895"),
-        (10, 14, 11, 1, "#3f8f58"), (10, 17, 12, 1, "#3f8f58"), (10, 20, 9, 1, "#3f8f58"),
-        (10, 23, 6, 1, "#3f8f58"), (20, 23, 1, 1, "#d6ecd0"),
+        (7, 6, 18, 23, "#06100b"), (8, 7, 16, 21, "#1f4a39"), (8, 7, 16, 1, "#2b6150"),
+        (8, 27, 16, 1, "#173a2c"), (23, 8, 1, 19, "#225242"), (8, 8, 16, 3, "#c08457"),
+        (8, 10, 16, 1, "#9a6844"),
+        (10, 4, 2, 5, "#06100b"), (10, 5, 1, 3, "#d79a74"), (15, 4, 2, 5, "#06100b"),
+        (15, 5, 1, 3, "#d79a74"), (20, 4, 2, 5, "#06100b"), (20, 5, 1, 3, "#d79a74"),
+        (10, 14, 11, 1, "#b98a66"), (10, 17, 12, 1, "#b98a66"), (10, 20, 9, 1, "#b98a66"),
+        (10, 23, 6, 1, "#b98a66"), (20, 23, 1, 1, "#e0b08c"),
     ]
-    GLOW = ["#2a2a1e", "#2f3523", "#334028", "#36492c", "#384f2f"]  # paper -> dim green
+    GLOW = ["#0e1c17", "#10241c", "#132c21", "#163426", "#193b2b"]  # silk -> dim green
 
     def __init__(self, app, scale=5):
         super().__init__(app, bg=PAPER, highlightthickness=0)
@@ -1926,11 +2668,18 @@ class SmallButton(tk.Label):
                          highlightthickness=1, highlightbackground=RULE, highlightcolor=RULE,
                          cursor="hand2")
         self.bind("<Button-1>", lambda e: command())
+        self.lit = False
         self.bind("<Enter>", lambda e: self.configure(bg=SIDEBAR_PICKED,
                                                       highlightbackground=colour))
-        self.bind("<Leave>", lambda e: self.configure(bg=FIELD, highlightbackground=RULE))
+        self.bind("<Leave>", lambda e: self.light(self.lit))
         self._packed = None
         self.set(text)
+
+    def light(self, on):
+        """Lit: the one picked (the view showing)."""
+        self.lit = on
+        self.configure(fg=INK if on else self.colour, bg=SIDEBAR_PICKED if on else FIELD,
+                       highlightbackground=self.colour if on else RULE)
 
     def pack(self, **kw):
         self._packed = kw

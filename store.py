@@ -254,6 +254,7 @@ class Store:
         self.imported: list[str] = []  # projects whose old to-do lists have been brought in
         self.order: list[str] = []   # the sidebar order he dragged them into (his ask, 2026-11-04)
         self.pinned: list[str] = []  # pinned to the top of the sidebar
+        self.settings: dict = {}  # his choices: the view ("layout") and motion on/off
         self.load()
 
     def load(self):
@@ -263,8 +264,10 @@ class Store:
             self.imported = data.get("imported", [])
             self.order = data.get("order", [])
             self.pinned = data.get("pinned", [])
+            self.settings = data.get("settings", {})
         except (FileNotFoundError, KeyError, ValueError, TypeError):
             self.notes, self.imported, self.order, self.pinned = {}, [], [], []
+            self.settings = {}
         for notes in self.notes.values():
             for n in notes:
                 n.setdefault("status", "waiting")
@@ -275,7 +278,8 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(json.dumps({"notes": self.notes, "imported": self.imported,
-                                   "order": self.order, "pinned": self.pinned}, indent=2))
+                                   "order": self.order, "pinned": self.pinned,
+                                   "settings": self.settings}, indent=2))
         tmp.replace(self.path)
 
     # --- the sidebar's order ------------------------------------------------

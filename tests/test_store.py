@@ -25,6 +25,14 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(len(again.get("sub-of-seas")), 1)
         self.assertEqual(again.get("glade"), [])
 
+    def test_settings_survive_a_restart(self):
+        s = Store(self.path)
+        self.assertEqual(s.settings, {})
+        s.settings["layout"] = "sky"
+        s.settings["motion"] = False
+        s.add("r62d", "a note")  # saving notes keeps the settings too
+        self.assertEqual(Store(self.path).settings, {"layout": "sky", "motion": False})
+
     def test_blank_note_is_ignored(self):
         self.assertIsNone(Store(self.path).add("r62d", "   "))
 

@@ -5,10 +5,10 @@ when one is finished, tick it and move it to **Done**.
 
 ## To do
 
-- [ ] vibenote should have more view types and needs a graphic overhaul. it needs to feel made of an exotic fabric, something with almost magical properties. be creative with this, i want to feel like im going to bed in silk pajamas in a night city utopia, add light animations for a sense of space, add perpective as well
 
 ## Done
 
+- [x] vibenote should have more view types and needs a graphic overhaul. it needs to feel made of an exotic fabric, something with almost magical properties. be creative with this, i want to feel like im going to bed in silk pajamas in a night city utopia, add light animations for a sense of space, add perpective as well
 - [x] there should be a button in vibenote in each project to just start a new chat in that project without the vibenote script and organization
 - [x] make vibenote, lando mode where he doesnt have any functionality when it comes to sending messages to claude but it has all the helpful UI interface. he prefers to interact with claude directly but he has been surprised at the other functionalities of this app
 - [x] vibe notes notes need to expand a larger text box so i dont have to right arrow key all the way to the most recently typed letter if it was a partially done note that hasnt been sent

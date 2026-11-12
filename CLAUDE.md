@@ -195,6 +195,37 @@ week from Claude's reset time (`lando_account`). `vibenote --bar` = Waybar JSON 
 top bar; `--toggle` (its click) closes an open VibeNote instead of opening another. The
 Waybar module and installing it on Lando's machines are a **config** change, not done yet.
 
+**Views** (his ask, 2026-11-12: "more view types"; his picks: all four). Top right over the
+sky: **List · Board · Sky · Timeline · Compact** (`LAYOUTS`, `_set_layout`; the lit one is
+`SmallButton.light`). Remembered in notes.json (`Store.settings["layout"]`) and part of
+`_page_key`. List is the old page. **Board** (`_draw_board`/`_card`): four columns of silk
+cards, Waiting (+Later) · Sent · Worked on (+with Lando) · Done (30 each, then "more in
+List"); a waiting card edits on click, others open in List; right-click = the move menu;
+cards wrap to a quarter of the page (`_cols`, `_card_wrap`, in `_rewrap_all`). **Sky**
+(`SkyView`, one canvas the height of the page): cards in perspective, waiting nearest, then
+sent/worked, Later, done farthest (newer nearer; the nearest always start close), spread
+wider the farther off; the wheel flies (`fly`), the mouse tilts it, hover shows the whole
+note at the bottom, click opens it in List. Four font sizes by distance (`f_sky`).
+**Timeline** and **Compact** are one `tk.Text` each (`_text_block`/`_finish_block`, shared
+with Done): a diary by day, newest first; one cut-to-fit line per note under status
+headings. Clicking a line (`_link`) opens it in List: `_goto_note` scrolls to its row
+(`notes_frame._rows`) and lights it for a moment (`_flash`). The note box, Send and Work
+work in every view; the ticks are set in List.
+
+**The silk night city** (his ask, 2026-11-12; see Look). `Horizon` (top of the page): sky
+bands, stars, two `Silk` ribbons, a glow, a 3-layer skyline (`far/mid/near` tags, drawn
+2600 px wide so resizing never shows an edge) with copper/peach windows that twinkle, a floor
+in perspective to the vanishing point, the title (`CanvasLabel`: answers `.configure(text=)`
+like the old label), the counts row (`count_row`, bottom, on flat PAPER) and the view tabs.
+`Thread` = the margin as a copper thread with a glint; `Brand` = the sidebar name on a
+ribbon with the **motion switch** ✦/✧ (`toggle_motion`, `Store.settings["motion"]`).
+**One ticker** (`_ambient` → `_frame`): 5 frames a second idle, 16 while the mouse moves
+(parallax), 2 when VibeNote isn't the window in use; the ribbons only once a second (each
+step makes the whole skyline redraw: that cost ~16% of a core); SkyView only touches cards
+that moved a pixel or changed show/hide. Measured: motion costs under 1% of a core. Don't
+redraw the ribbons every frame again. All shapes are plain Tk canvas: the installed app has
+only tkinter (no Pillow), and only the five listed source files, so new code goes in main.py.
+
 **Find** (Ctrl+F, his ask): a box over the page; every note in every project (and its
 snapshot) with all the words, lit up; click one to open its project; Esc goes back.
 
@@ -229,7 +260,7 @@ Look (his calls, in order):
   light sensitive." Now **dark warm**: deep brown page and sidebar, soft cream text (never
   white), muted terracotta for headings / Send / the main button, a dim margin line, Georgia.
   Keep everything low-glare; no bright or white areas. Colours are the constants at the top
-  of `main.py`.
+  of `main.py` (emerald silk since 2026-11-12, below).
 - 2026-11-02: "clearer places where you are able to click and less cluttery small text". His
   picks: the little clickable things are **small outlined buttons** (`SmallButton`: Summary /
   Back, Claude usage, Tick all, Change) that light up under the mouse; small text is 12 pt
@@ -243,6 +274,15 @@ Look (his calls, in order):
   resize everything smoothly": opens 1120×780 (`WIDE`/`TALL`), smallest 760×520; the
   sidebar is ~27% of the width (220–310, `_fit_sidebar`, on the settled resize) and the page
   margins narrow when the window does.
+- 2026-11-12: "Vibenote should have more view types and needs a graphic overhaul. it needs to
+  feel made of an exotic fabric, something with almost magical properties. be creative with
+  this, feel I'm going to bed in silk pajamas in a night city utopia, add light animations
+  for a sense of space, add perpective as well". His picks: **emerald silk, copper and
+  peach lights** (replaces the brown and terracotta; still dim, cream text, never white);
+  the night city as a **horizon behind the page**; **slow and subtle motion with an off
+  switch**; views Board, Sky, Timeline, Compact. Then: "update the desktop, file, and dock
+  icons when youre done with the design" → `assets/icon.svg` is now a silk notepad over the
+  night city (it is the menu, dock, file and Glade-squid icon); the loading notepad matches.
 Ask him before changing the look.
 
 **Ticks** (his ask): each waiting note has a **Send** tick (terracotta, new notes start ticked)

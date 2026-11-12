@@ -1,33 +1,84 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="256" height="256" shape-rendering="crispEdges">
-  <!-- VibeNote: a pixel-art notepad with a soft green glow (his pick, 2026-10-30) -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- VibeNote: a notepad of emerald silk over a night city, copper and peach lights
+       (his ask, 2026-11-12: icons to match the silk night-city look) -->
   <defs>
-    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="2.2"/>
-    </filter>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#060e0b"/>
+      <stop offset="0.62" stop-color="#11271e"/>
+      <stop offset="1" stop-color="#0e1c17"/>
+    </linearGradient>
+    <radialGradient id="haze" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#c08457" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#c08457" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="silk" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#16362a"/>
+      <stop offset="0.42" stop-color="#2d6a52"/>
+      <stop offset="0.55" stop-color="#3d8167"/>
+      <stop offset="0.7" stop-color="#22503e"/>
+      <stop offset="1" stop-color="#132a21"/>
+    </linearGradient>
+    <linearGradient id="ribbon" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#d79a74" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#d79a74" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#d79a74" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="tile"><rect x="8" y="8" width="240" height="240" rx="54"/></clipPath>
   </defs>
-  <!-- the glow behind it -->
-  <rect x="6" y="5" width="20" height="24" rx="3" fill="#8ff0a4" opacity="0.55" filter="url(#glow)" shape-rendering="auto"/>
-  <!-- outline -->
-  <rect x="7" y="6" width="18" height="23" fill="#1d3b2a"/>
-  <!-- page -->
-  <rect x="8" y="7" width="16" height="21" fill="#dff7d2"/>
-  <!-- lit top edge and shaded bottom/right -->
-  <rect x="8" y="7" width="16" height="1" fill="#f4fff0"/>
-  <rect x="8" y="27" width="16" height="1" fill="#b4e3a6"/>
-  <rect x="23" y="8" width="1" height="19" fill="#c3ebb6"/>
-  <!-- green header band -->
-  <rect x="8" y="8" width="16" height="3" fill="#5fbf7a"/>
-  <rect x="8" y="10" width="16" height="1" fill="#3f9a5c"/>
-  <!-- binding rings -->
-  <rect x="10" y="4" width="2" height="5" fill="#1d3b2a"/><rect x="10" y="5" width="1" height="3" fill="#a8f5b8"/>
-  <rect x="15" y="4" width="2" height="5" fill="#1d3b2a"/><rect x="15" y="5" width="1" height="3" fill="#a8f5b8"/>
-  <rect x="20" y="4" width="2" height="5" fill="#1d3b2a"/><rect x="20" y="5" width="1" height="3" fill="#a8f5b8"/>
-  <!-- written lines -->
-  <rect x="10" y="14" width="11" height="1" fill="#4aa866"/>
-  <rect x="10" y="17" width="12" height="1" fill="#4aa866"/>
-  <rect x="10" y="20" width="9" height="1" fill="#4aa866"/>
-  <rect x="10" y="23" width="6" height="1" fill="#4aa866"/>
-  <!-- a little glowing dot, like a firefly on the page -->
-  <rect x="19" y="22" width="3" height="3" fill="#8ff0a4" opacity="0.6" filter="url(#glow)" shape-rendering="auto"/>
-  <rect x="20" y="23" width="1" height="1" fill="#f4fff0"/>
+  <g clip-path="url(#tile)">
+    <rect x="0" y="0" width="256" height="256" fill="url(#sky)"/>
+    <!-- stars -->
+    <g fill="#dccdb2" opacity="0.5">
+      <circle cx="40" cy="44" r="1.6"/><circle cx="214" cy="36" r="1.4"/>
+      <circle cx="196" cy="78" r="1.2"/><circle cx="58" cy="92" r="1.1"/>
+      <circle cx="226" cy="112" r="1.3"/>
+    </g>
+    <!-- the city's glow on the horizon -->
+    <ellipse cx="128" cy="190" rx="130" ry="46" fill="url(#haze)"/>
+    <!-- far and near skyline -->
+    <path fill="#0c1b15" d="M0 192V150h14v-18h12v26h10v-40h8v-10h6v10h8v48h12v-22h16v30h10v-52h6v-14h4v14h6v56h14v-30h18v18h10v-44h8v-12h6v12h8v52h12v-28h14v20h10v-34h12v62H0z"/>
+    <path fill="#06100b" d="M0 196v-28h22v-16h14v26h12v-12h18v22h14v-36h16v30h12v-20h14v28h16v-34h12v24h14v-16h16v26h12v-30h16v22h14v-14h12v28z"/>
+    <g fill="#c08457">
+      <rect x="18" y="160" width="3" height="3"/><rect x="40" y="168" width="3" height="3" fill="#b98a66"/>
+      <rect x="72" y="178" width="3" height="3" fill="#d79a74"/><rect x="88" y="150" width="3" height="3"/>
+      <rect x="94" y="166" width="3" height="3" fill="#a8744f"/><rect x="150" y="172" width="3" height="3" fill="#d79a74"/>
+      <rect x="182" y="160" width="3" height="3" fill="#b98a66"/><rect x="214" y="176" width="3" height="3"/>
+      <rect x="236" y="170" width="3" height="3" fill="#d79a74"/>
+    </g>
+    <!-- the floor in perspective, running to the city -->
+    <rect x="0" y="196" width="256" height="60" fill="#0e1c17"/>
+    <g stroke="#5a3f2c" stroke-width="1.5" opacity="0.8">
+      <line x1="128" y1="196" x2="-40" y2="256"/><line x1="128" y1="196" x2="40" y2="256"/>
+      <line x1="128" y1="196" x2="128" y2="256"/><line x1="128" y1="196" x2="216" y2="256"/>
+      <line x1="128" y1="196" x2="296" y2="256"/>
+      <line x1="0" y1="206" x2="256" y2="206"/><line x1="0" y1="226" x2="256" y2="226"/>
+    </g>
+    <line x1="0" y1="196" x2="256" y2="196" stroke="#8a5d3d" stroke-width="1.5"/>
+    <!-- the notepad: a page of emerald silk, tilted a little -->
+    <g transform="rotate(-7 128 112)">
+      <rect x="78" y="42" width="100" height="128" rx="10" fill="#06100b" opacity="0.6" transform="translate(5 7)"/>
+      <rect x="78" y="42" width="100" height="128" rx="10" fill="url(#silk)" stroke="#c08457" stroke-width="3"/>
+      <!-- a soft sheen across the silk -->
+      <path d="M80 112 C110 92 140 132 176 104 L176 124 C140 152 110 112 80 132z" fill="#4f9478" opacity="0.28"/>
+      <!-- copper header and binding rings -->
+      <rect x="78" y="42" width="100" height="20" rx="10" fill="#9a6844"/>
+      <rect x="78" y="54" width="100" height="8" fill="#9a6844"/>
+      <g fill="#d79a74" stroke="#06100b" stroke-width="2">
+        <rect x="96" y="30" width="9" height="24" rx="4.5"/>
+        <rect x="124" y="30" width="9" height="24" rx="4.5"/>
+        <rect x="152" y="30" width="9" height="24" rx="4.5"/>
+      </g>
+      <!-- written lines, in copper thread -->
+      <g stroke="#d9a07a" stroke-width="4" stroke-linecap="round" opacity="0.85">
+        <line x1="94" y1="84" x2="160" y2="84"/>
+        <line x1="94" y1="104" x2="164" y2="104"/>
+        <line x1="94" y1="124" x2="148" y2="124"/>
+        <line x1="94" y1="144" x2="126" y2="144"/>
+      </g>
+    </g>
+    <!-- a silk ribbon drifting across -->
+    <path d="M-10 142 C50 112 90 176 150 146 S230 118 270 132 L270 142 C230 130 200 166 150 160 S50 132 -10 158z"
+          fill="url(#ribbon)"/>
+  </g>
+  <rect x="8" y="8" width="240" height="240" rx="54" fill="none" stroke="#1f3a30" stroke-width="3"/>
 </svg>
