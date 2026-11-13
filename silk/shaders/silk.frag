@@ -19,23 +19,27 @@ layout(std140, binding = 0) uniform buf {
     vec4 r3;
 };
 
+// A ripple: one soft ring running out from where he clicked. Softer and shorter since his
+// ask (2026-11-13: "causing a fair bit of lag ... dont have to be quite as aggressive"), and
+// only the pixels near the ring do the sums, so the rest of the cloth costs nothing extra.
+const float LIFE = 2.0;
 float ripple(vec2 p, vec4 r) {
     float age = time - r.z;
-    if (r.w <= 0.0 || age < 0.0 || age > 3.2) return 0.0;
-    float d = distance(p, r.xy);
-    float front = age * 240.0;
-    float ring = exp(-pow((d - front) / 30.0, 2.0));
-    return ring * sin((d - front) * 0.2) * (1.0 - age / 3.2) * r.w;
+    if (r.w <= 0.0 || age < 0.0 || age > LIFE) return 0.0;
+    float off = distance(p, r.xy) - age * 200.0;
+    if (abs(off) > 55.0) return 0.0;
+    float ring = exp(-(off * off) / (22.0 * 22.0));
+    return ring * sin(off * 0.2) * (1.0 - age / LIFE) * r.w;
 }
 
 void main() {
     vec2 p = qt_TexCoord0 * size + offset;
     float rip = ripple(p, r0) + ripple(p, r1) + ripple(p, r2) + ripple(p, r3);
-    vec2 q = p + vec2(rip * 5.0);
+    vec2 q = p + vec2(rip * 2.0);
     float fold = 0.5 * sin(q.x * 0.010 + q.y * 0.017 + time * 0.21)
                + 0.35 * sin(q.x * 0.023 - q.y * 0.009 - time * 0.13 + 1.7)
                + 0.6 * sin((q.x + q.y) * 0.004 + time * 0.07);
-    float h = fold + rip * 1.6;
+    float h = fold + rip * 0.7;
     vec2 grad = vec2(dFdx(h), dFdy(h));
     vec3 n = normalize(vec3(-grad * 45.0, 1.0));
     vec3 L = normalize(vec3(mouse - p, 280.0));
@@ -53,6 +57,6 @@ void main() {
     col += vec3(0.10, 0.22, 0.17) * pow(clamp(0.5 + 0.3 * fold, 0.0, 1.0), 4.0) * 0.4 * level;
     col += vec3(0.34, 0.21, 0.12) * spec * near * 0.6;
     col += vec3(0.05, 0.03, 0.02) * near * 0.3;
-    col += vec3(0.12, 0.08, 0.05) * max(rip, 0.0) * 0.25;
+    col += vec3(0.12, 0.08, 0.05) * max(rip, 0.0) * 0.12;
     fragColor = vec4(col, 1.0) * qt_Opacity;
 }

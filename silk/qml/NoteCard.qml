@@ -192,8 +192,6 @@ Item {
                         enabled: card.waiting
                         onTapped: (ev) => {
                             if (label.selectedText !== "") return
-                            var at = label.mapToItem(root, ev.position.x, ev.position.y)
-                            win.ripple(at.x, at.y, 0.5)
                             card.startEdit()
                         }
                         onPressedChanged: card.press = pressed ? 1 : 0

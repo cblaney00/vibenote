@@ -218,8 +218,6 @@ Item {
                             if (side.stale) { side.stale = false; side.fill() }
                             return
                         }
-                        var at = mapToItem(root, m.x, m.y)
-                        win.ripple(at.x, at.y, 0.6)
                         bridge.pick(slot.slug)
                     }
                 }

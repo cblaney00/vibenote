@@ -100,7 +100,7 @@ Window {
         // clicking the bare silk sends a ripple through it
         MouseArea {
             anchors.fill: parent
-            onPressed: (m) => win.ripple(m.x, m.y, 1.0)
+            onPressed: (m) => win.ripple(m.x, m.y, 0.8)
         }
 
         Sidebar {

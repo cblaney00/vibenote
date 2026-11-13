@@ -866,7 +866,7 @@ class VibeNote(tk.Tk):
         return sender.usage_after(self.guess.usage, cost)
 
     def _draw_usage(self):
-        """Claude usage, broken down, for both accounts (his ask, 2026-11-02)."""
+        """Claude usage, broken down, for each of his accounts (his ask, 2026-11-02)."""
         t = sender.short_tokens
         report = self._report()
         usage = self.guess.usage or {}
@@ -3034,6 +3034,7 @@ if __name__ == "__main__":
         previous = sender.load_saved_usage()
         if sender.save_if_better(sender.collect_usage(previous=previous), previous):
             print(f"VibeNote: token use saved to {sender.USAGE}")
+            sender.sync_accounts(sender.load_saved_usage(), sender.load_live_usage())
         else:
             print("VibeNote: couldn't see Claude's chats from here, so the saved token use "
                   "was kept. Run it as root, outside any sandbox.")

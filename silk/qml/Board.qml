@@ -130,7 +130,7 @@ Item {
         var home = cols.findIndex(function (c) { return c.kinds.indexOf(ghost.note.kind) >= 0 })
         ghost.tx = col * (colW + gap)
         var at2 = mapToItem(root, at.x, at.y)
-        win.ripple(at2.x, at2.y, 0.9)
+        win.ripple(at2.x, at2.y, 0.7)
         landing.col = col
         landing.home = home
         landing.id = id

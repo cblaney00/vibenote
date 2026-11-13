@@ -688,7 +688,7 @@ class Bridge(QObject):
             return {"title": "Something went wrong", "counts": str(err), "lines": []}
 
     def _usage_page(self):
-        """Claude usage, broken down, for both accounts (his ask, 2026-11-02), and tips for
+        """Claude usage, broken down, for each of his accounts (his ask, 2026-11-02), and tips for
         lighter tokens at the bottom (his pick, 2026-11-04)."""
         t = sender.short_tokens
         usage = self.guess.usage or {}

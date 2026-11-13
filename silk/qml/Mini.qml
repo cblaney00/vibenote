@@ -58,7 +58,7 @@ Window {
         Silk { anchors.fill: parent; level: 0.8 }
         MouseArea {
             anchors.fill: parent
-            onPressed: (m) => win.ripple(m.x, m.y, 1.0)
+            onPressed: (m) => win.ripple(m.x, m.y, 0.8)
         }
 
         Horizon {

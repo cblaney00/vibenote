@@ -64,3 +64,12 @@ Still dim for his eyes: emerald and copper, cream text, never white.
    something on your computer"): its Python gets the same `pyqt6` the vibe-python dev shell
    has (with Qt Quick, Quick 3D, Effects, Shapes), and `installPhase` also copies `silk/`
    (without `__pycache__`) and `assets/`. Nothing else in the config changes.
+
+## Ripples calmed (2026-11-13)
+
+His note: "causing a fair bit of lag, they also dont have to be quite as aggressive".
+`silk.frag`: a ripple lives 2 s (was 3.2), its ring is narrower, it bends the cloth less
+(displacement 2, height 0.7, glow 0.12), and pixels more than 55 px from the ring skip the
+sums. Measured in software rendering with four ripples going at once: +40% drawing cost
+before, +13% after. Tapping a note card or a sidebar row no longer ripples; the other
+triggers are gentler (0.6–0.9).

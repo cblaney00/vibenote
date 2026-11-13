@@ -50,7 +50,7 @@ Item {
         cursorShape: Qt.PointingHandCursor
         onClicked: {
             var at = btn.mapToItem(root, btn.width / 2, btn.height / 2)
-            win.ripple(at.x, at.y, 0.8)
+            win.ripple(at.x, at.y, 0.6)
             btn.clicked()
         }
     }

@@ -503,6 +503,8 @@ def save_live_usage(path: Path = LIVE, every: int = 60) -> bool:
     if not live:
         return False
     save_usage(live, path)
+    if path == LIVE:
+        sync_accounts(load_saved_usage(), live)
     return True
 
 
@@ -704,7 +706,7 @@ def token_tips(usage: dict | None, guess: "TokenGuess", title=lambda slug: slug,
         when = ("in the morning" if part < 7 else "in the afternoon" if part < 12
                 else "in the evening" if part < 18 else "late at night")
         tips.append(f"You've hit the 5-hour limit {len(fives)} times, mostly {when}. Spreading "
-                    "big jobs over the day (or across both accounts) keeps you from waiting "
+                    "big jobs over the day (or across your accounts) keeps you from waiting "
                     "out a limit.")
     # Busy hours
     tips.append(f"Weekdays 8am-2pm (Claude's busy hours) the same work uses up about "
@@ -764,7 +766,7 @@ def good_time(guess: TokenGuess, now=None) -> tuple[str, str]:
     return "good", "Quiet hours."
 
 
-# --- his two Claude accounts (his ask, 2026-11-02) -------------------------------------
+# --- his Claude accounts (his ask, 2026-11-02; 3 and 4 came 2026-11-13, sync_accounts) -------------------------------------
 # Each has a week that refreshes at a set time, 3.5 days apart. His words: account 1
 # refreshes Monday 11am; account 2 "sometime nov 5" (Thursday) - 11pm is a guess (3.5 days
 # after account 1) until he changes it. Which email is which lives only in ACCOUNTS on his
@@ -808,8 +810,45 @@ def lando_account(live: dict | None = None) -> dict:
 
 
 def save_accounts(accounts: list[dict], path: Path = ACCOUNTS):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(accounts, indent=1))
+    save_usage(accounts, path)  # same care: written whole, and his file even when root writes
+
+
+def sync_accounts(usage: dict | None = None, live: dict | None = None,
+                  path: Path = ACCOUNTS) -> bool:
+    """Keep up with his accounts (his ask, 2026-11-13: "there is now an account 3 and 4 ...
+    look out for them"). Every login VibeNote sees that is not one of his accounts yet
+    becomes the next "Account N", in the order he first used them; and whenever Claude's
+    live numbers say when the logged-in account's week resets, that account takes Claude's
+    time (better than a guess or a typo). Saves only when something changed."""
+    if not HIS:
+        return False
+    accounts = load_accounts(path)
+    changed = False
+    known = {a["email"] for a in accounts if a.get("email")}
+    for _, email in (usage or {}).get("logins", []):
+        if not email or email in known:
+            continue
+        known.add(email)
+        blank = next((a for a in accounts if not a.get("email")), None)
+        if blank is not None:
+            blank["email"] = email
+        else:
+            accounts.append({"name": f"Account {len(accounts) + 1}", "email": email,
+                             "weekday": 0, "hour": 0, "minute": 0, "guess": True})
+        changed = True
+    try:
+        from datetime import datetime
+        at = datetime.fromisoformat(live["week"]["resets"]).astimezone()
+        acc = next(a for a in accounts if a.get("email") and a["email"] == live["email"])
+        when = {"weekday": at.weekday(), "hour": at.hour, "minute": at.minute, "guess": False}
+        if any(acc.get(k) != v for k, v in when.items()):
+            acc.update(when)
+            changed = True
+    except (KeyError, TypeError, ValueError, StopIteration):
+        pass
+    if changed:
+        save_accounts(accounts, path)
+    return changed
 
 
 def parse_refresh(text: str) -> dict | None:

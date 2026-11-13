@@ -125,7 +125,11 @@ Done — "1 Nov · guessed ~29k · used ~13k". Batches record `plan` (the Work m
 from those (a project keeps its old rate until it has 2 of its own).
 
 **Claude usage page** (his ask, 2026-11-02; his pick: click the sign → "Claude usage ›").
-Two accounts, each with a week that refreshes at a set time — his words: **Account 1 refreshes
+**Accounts 3 and 4** (his ask, 2026-11-13: "look out for them"; his pick: numbered in the
+order first used). `sender.sync_accounts` (after each live fetch and `--collect-usage`) adds
+any login not yet in accounts.json as the next "Account N", and sets the logged-in account's
+refresh from Claude's live weekly reset time (so guesses fix themselves). Originally
+two accounts, each with a week that refreshes at a set time — his words: **Account 1 refreshes
 Monday 11am; Account 2 "sometime nov 5"** (Thu 11pm is a guess; he can click the refresh line
 to change it). Which email is which is only in `~/.local/share/vibenote/accounts.json` on his
 computer — **never put his emails in this repo: it is public on GitHub.** (His to-do note

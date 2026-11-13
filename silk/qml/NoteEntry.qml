@@ -27,7 +27,7 @@ Item {
                 if (input.text.trim() !== "") {
                     bridge.addNote(input.text)
                     var at = entry.mapToItem(root, entry.width / 2, entry.height / 2)
-                    win.ripple(at.x, at.y, 1.2)
+                    win.ripple(at.x, at.y, 0.9)
                     input.text = ""
                 }
                 e.accepted = true
