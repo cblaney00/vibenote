@@ -837,8 +837,9 @@ def sync_accounts(usage: dict | None = None, live: dict | None = None,
                              "weekday": 0, "hour": 0, "minute": 0, "guess": True})
         changed = True
     try:
-        from datetime import datetime
-        at = datetime.fromisoformat(live["week"]["resets"]).astimezone()
+        from datetime import datetime, timedelta
+        # to the nearest minute: Claude's time can be a second short (10:59:59pm)
+        at = datetime.fromisoformat(live["week"]["resets"]).astimezone() + timedelta(seconds=30)
         acc = next(a for a in accounts if a.get("email") and a["email"] == live["email"])
         when = {"weekday": at.weekday(), "hour": at.hour, "minute": at.minute, "guess": False}
         if any(acc.get(k) != v for k, v in when.items()):
