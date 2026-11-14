@@ -18,6 +18,7 @@ import json
 import os
 import re
 import uuid
+from functools import lru_cache
 from datetime import date
 from pathlib import Path
 
@@ -51,6 +52,7 @@ def today() -> str:
     return date.today().isoformat()
 
 
+@lru_cache(maxsize=50000)  # matched hundreds of thousands of times: work it out once
 def bare(text: str) -> str:
     """His words without the *(...)* notes Claude writes under an item about what it did, so
     an item still matches itself after Claude has added one."""
@@ -102,6 +104,7 @@ def _phrases(words):
 _BIG, _MEDIUM, _SMALL = _phrases(BIG_WORDS), _phrases(MEDIUM_WORDS), _phrases(SMALL_WORDS)
 
 
+@lru_cache(maxsize=50000)
 def size_score(text: str) -> float:
     """A rough guess at how many tokens a change will take: higher is bigger."""
     t = " ".join(text.lower().split())
@@ -227,6 +230,7 @@ SLIPS = {
 }
 
 
+@lru_cache(maxsize=50000)
 def condense(text: str) -> str:
     """His note, said shorter and clearer for Claude."""
     t = " " + " ".join(text.split()) + " "
@@ -439,8 +443,12 @@ class Store:
             review_items = [n["text"] for n in notes if n["status"] == "review"]
         changed = False
 
+        keys = {}  # each list's items as bare text, so matching is a set lookup
+
         def listed(n, items):
-            return any(same(n["text"], t) for t in items)
+            if id(items) not in keys:
+                keys[id(items)] = {bare(t) for t in items}
+            return bare(n["text"]) in keys[id(items)]
 
         first = slug not in self.imported
         if first:
@@ -455,18 +463,19 @@ class Store:
         # Something on the list VibeNote has not seen (added in a chat, or already there
         # on import): it counts as sent. One he put in Later is known (a shared game's other
         # branches may still list it)
+        known = {bare(n["text"]) for n in notes if n["status"] in ("sent", "later", "review")}
+        finished = {bare(n["text"]) for n in notes if n["status"] == "done"}
         for status, items in (("sent", open_items), ("review", review_items)):
             for text in items:
-                if not any(n["status"] in ("sent", "later", "review") and same(n["text"], text)
-                           for n in notes):
-                    if status == "review" and any(n["status"] == "done" and
-                                                  same(n["text"], text) for n in notes):
+                if bare(text) not in known:
+                    if status == "review" and bare(text) in finished:
                         continue  # a done one goes back to review just below
                     note = {"id": new_id(), "text": text, "status": status, "imported": True,
                             "send": True, "work": False}
                     if not first:
                         note["sent"] = today()  # the day VibeNote first saw it there
                     notes.append(note)
+                    known.add(bare(text))
                     changed = True
 
         for n in notes:
@@ -488,10 +497,14 @@ class Store:
 
         # The same item twice on the list or in review: from before Claude's *(...)* notes
         # under an item were matched to it, each new note made it look like a new item
-        keep = []
+        keep, firsts = [], {}
         for n in notes:
-            twin = next((k for k in keep if k["status"] == n["status"] in ("sent", "review")
-                         and same(k["text"], n["text"])), None)
+            twin = None
+            if n["status"] in ("sent", "review"):
+                key = (n["status"], bare(n["text"]))
+                twin = firsts.get(key)
+                if twin is None:
+                    firsts[key] = n
             if twin is None:
                 keep.append(n)
                 continue

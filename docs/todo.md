@@ -8,6 +8,9 @@ when one is finished, tick it and move it to **Done**.
 
 ## Done
 
+- [x] when i click on my r62d in vibenote it as to load for a second, lets make that a bit faster, i imagine it would be because i have a lot of notes but it definitely doesnt need to lag
+- [x] my vibenote needs some serious work in terms of how smoothly it functions, and how fast things load
+- [x] the send and work all buttons both dont seem to work
 - [x] there is now an account 3 and 4 that im using now so look out for them
 - [x] the new vibenotes ripples seem to be causing a fair bit of lag, they also dont have to be quite as aggressive
 - [x] vibenote should have more view types and needs a graphic overhaul. it needs to feel made of an exotic fabric, something with almost magical properties. be creative with this, i want to feel like im going to bed in silk pajamas in a night city utopia, add light animations for a sense of space, add perpective as well

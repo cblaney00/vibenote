@@ -642,16 +642,33 @@ class TokenGuess:
         return round(max(size, 0.5) * rate * self.factor(when))
 
 
+_BATCH_INDEX: dict = {}
+
+
+def _batches_naming(usage: dict | None, slug: str, key: str) -> list:
+    """That project's Work batches that name this item (bare text), oldest first. Indexed once
+    per usage summary: a page of 400 finished notes asked this one by one (2026-11-13)."""
+    from store import bare
+    if not usage:
+        return []
+    if _BATCH_INDEX.get("of") is not usage:
+        index = {}
+        for b in usage.get("batches", []):
+            for k in dict.fromkeys(bare(i) for i in b["items"]):
+                index.setdefault((b.get("project"), k), []).append(b)
+        _BATCH_INDEX.clear()
+        _BATCH_INDEX.update(of=usage, index=index)
+    return _BATCH_INDEX["index"].get((slug, key), [])
+
+
 def actual_tokens(note: dict, slug: str, usage: dict | None) -> int | None:
     """What a worked-on note really used (his ask, 2026-11-09): its Work batch's tokens, split
     across the batch's items by their size guess. The batch is the first in that project
     started once he pressed Work (work_at), else (older notes) the latest naming it."""
-    from store import same, size_score
+    from store import bare, same, size_score
     text = condense(note["text"])
     found = None
-    for b in (usage or {}).get("batches", []):
-        if b.get("project") != slug or not any(same(text, i) for i in b["items"]):
-            continue
+    for b in _batches_naming(usage, slug, bare(text)):
         if note.get("work_at"):
             if (b.get("started") or "") >= note["work_at"]:
                 found = b

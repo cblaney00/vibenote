@@ -410,6 +410,17 @@ as they re-wrap. Back to a project ~10 ms, first visit ~30–80 ms (Tk mapping i
 The snapshot line floats in a small box over the notes below (`_show_snap`), instead of
 pushing them down.
 
+**Silk speed** (his asks, 2026-11-13: R62D "has to load for a second", "serious work in terms
+of how smoothly it functions", and Send / Work "dont seem to work" — they did work, but the
+window took 3–4 s to show it). Causes: `bridge.page` was rebuilt on every QML read (~8 per
+change, 0.37 s each for R62D's 421 done notes), and `store.bare` (a regex) ran ~320k times
+in O(n²) matching loops at start and in the 10 s re-read. Now: pages are kept per project
+(`Bridge._pages`; cleared by `_changed`, a single tick drops its own, `pick` only switches);
+`bare`, `size_score`, `condense` are memoised (`lru_cache`); matching in `projects._read`,
+`Store.sync` and `sender.actual_tokens` (`_batches_naming`, an index per usage) uses sets.
+Start 6 s → 0.2 s, R62D page 0.37 s ×8 → 0.065 s once, a tick-all ~0.01 s. Don't make a
+`pyqtProperty` getter do real work again.
+
 **Quick start** (his ask, 2026-11-01): it took ~9 s to open. Causes, both fixed: each note
 re-wrapped itself on its own `<Configure>` (a chain of re-layouts) — now all notes wrap in
 one pass (`_rewrap_all`, after a page is drawn or the canvas resizes), and the note text is

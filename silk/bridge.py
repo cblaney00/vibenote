@@ -41,6 +41,9 @@ class Bridge(QObject):
     def __init__(self, lando=False):
         super().__init__()
         self.lando = lando
+        # Each project's page, built once and kept until its notes change: the QML reads
+        # bridge.page in several places, and R62D's took 0.4 s to build (2026-11-13)
+        self._pages = {}
         self.store = Store()
         self.guess = sender.TokenGuess(sender.load_usage())
         self.projects = projects.find_projects()
@@ -114,6 +117,7 @@ class Bridge(QObject):
                 self._changed()
 
     def _changed(self):
+        self._pages.clear()
         self.projectsChanged.emit()
         self.pageChanged.emit()
         self.countsChanged.emit()
@@ -189,6 +193,15 @@ class Bridge(QObject):
 
     @pyqtProperty("QVariantMap", notify=pageChanged)
     def page(self):
+        p = self.current
+        if p is not None and p.slug in self._pages:
+            return self._pages[p.slug]
+        built = self._build_page()
+        if p is not None:
+            self._pages[p.slug] = built
+        return built
+
+    def _build_page(self):
         p = self.current
         if p is None:
                 return {"title": "No projects yet", "counts": "Start one with vibe", "sections": []}
@@ -384,7 +397,10 @@ class Bridge(QObject):
         if self._view:
             self._view = ""
             self.viewChanged.emit()
-        self._changed()
+        # only the picked project changed: its kept page (if any) shows at once
+        self.projectsChanged.emit()
+        self.pageChanged.emit()
+        self.countsChanged.emit()
 
     @pyqtSlot(bool)
     def setEditing(self, on):
@@ -421,6 +437,7 @@ class Bridge(QObject):
         note = self._note(note_id)
         if note:
             self.store.tick(self.current.slug, [note_id], which, not note[which])
+            self._pages.pop(self.current.slug, None)  # built again next time it is read
             self.countsChanged.emit()  # the card already shows its tick
 
     @pyqtSlot()
@@ -526,6 +543,7 @@ class Bridge(QObject):
     def _apply_learned(self, usage, tell):
         if usage:
             self.guess = sender.TokenGuess(usage)
+            self._pages.clear()  # the token guesses on every page changed
             if not self._editing and not self._busy:
                 self._changed()
         self.liveChanged.emit()

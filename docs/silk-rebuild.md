@@ -73,3 +73,8 @@ His note: "causing a fair bit of lag, they also dont have to be quite as aggress
 sums. Measured in software rendering with four ripples going at once: +40% drawing cost
 before, +13% after. Tapping a note card or a sidebar row no longer ripples; the other
 triggers are gentler (0.6–0.9).
+
+## Speed (2026-11-13)
+
+Pages are kept per project in the bridge, and matching is memoised/set-based; see CLAUDE.md
+"Silk speed". QML reads `bridge.page` in many bindings, so its getter must stay a cache lookup.

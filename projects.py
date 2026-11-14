@@ -6,7 +6,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from store import HIS, same as _same
+from store import HIS, bare, same as _same
 
 PROJECTS_DIR = Path(os.environ.get("VIBENOTE_PROJECTS", "/home/insideabush/projects" if HIS
                                    else Path.home() / "projects"))
@@ -82,6 +82,7 @@ class Project:
         main = next((r for r in ("refs/remotes/origin/main", "refs/heads/main") if r in refs),
                     None)
         open_items, done, main_done = [], [], []
+        seen = (set(), set(), set())
         for ref, lines in versions:
             start, end = _todo_section(lines)
             if start is None and not whole_file:
@@ -90,19 +91,20 @@ class Project:
             finished = [text for ticked, text in _items(part) if ticked]
             for ticked, text in _items(part):
                 if not ticked:
-                    _add(open_items, text)
+                    _add(open_items, seen[0], text)
             d_start, d_end = _section(lines, r"done")
             if d_start is not None:
                 finished += [text for _, text in _items(lines[d_start:d_end])]
             for text in finished:
-                _add(done, text)
+                _add(done, seen[1], text)
                 if ref == main:
-                    _add(main_done, text)
-        open_items = [t for t in open_items if not any(_same(t, d) for d in done)]
+                    _add(main_done, seen[2], text)
+        open_items = [t for t in open_items if bare(t) not in seen[1]]
         review = None if self.shared else []  # None: couldn't tell (no main branch read)
         if main:
-            review = [d for d in done if not any(_same(d, m) for m in main_done)]
-            done = [d for d in done if d not in review]
+            review = [d for d in done if bare(d) not in seen[2]]
+            in_review = set(review)
+            done = [d for d in done if d not in in_review]
         return open_items, done, review
 
     def read(self):
@@ -229,9 +231,12 @@ def _items(lines):
     return [(ticked, text) for ticked, text in items if text]
 
 
-def _add(items, text):
-    if not any(_same(text, t) for t in items):
+def _add(items, seen, text):
+    """Add text unless it is already there (seen: the bare texts of items, kept alongside)."""
+    key = bare(text)
+    if key not in seen:
         items.append(text)
+        seen.add(key)
 
 
 def _field(text, name):
