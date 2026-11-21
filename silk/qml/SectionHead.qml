@@ -49,11 +49,9 @@ Item {
         anchors { left: label.right; leftMargin: 14; verticalCenter: label.verticalCenter }
         height: 1
         color: C.margin
-        width: 0
-        NumberAnimation on width {
-            to: Math.max(0, head.width - label.width - label.x - ticks.width - 50)
-            duration: 900
-            easing.type: Easing.OutCubic
-        }
+        // it stops short of the Send / Work words (it used to run through them)
+        width: Math.max(0, (ticks.visible && ticks.width > 0 ? ticks.x - 16 : head.width - 10) - x) * grow
+        property real grow: 0
+        NumberAnimation on grow { to: 1; duration: 900; easing.type: Easing.OutCubic }
     }
 }

@@ -5,10 +5,10 @@ when one is finished, tick it and move it to **Done**.
 
 ## To do
 
-- [ ] find issues with vibenote and fix them, dont ask me questions, look through it youself, mouse hover everything, clean up the app, add basic features
 
 ## Done
 
+- [x] find issues with vibenote and fix them, dont ask me questions, look through it youself, mouse hover everything, clean up the app, add basic features
 - [x] when i click on my r62d in vibenote it as to load for a second, lets make that a bit faster, i imagine it would be because i have a lot of notes but it definitely doesnt need to lag
 - [x] my vibenote needs some serious work in terms of how smoothly it functions, and how fast things load
 - [x] the send and work all buttons both dont seem to work

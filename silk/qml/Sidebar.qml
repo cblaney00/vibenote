@@ -22,6 +22,10 @@ Item {
         y: 20
         text: "VibeNote"
         color: C.accent
+        // shrinks a little in a narrow sidebar so the ✦ never sits on it
+        width: motionBtn.x - x - 12
+        fontSizeMode: Text.HorizontalFit
+        minimumPixelSize: 20
         font { family: win.serif; pixelSize: 30; bold: true; italic: true }
         layer.enabled: true
         layer.effect: MultiEffect {
@@ -35,6 +39,7 @@ Item {
     }
 
     Text {  // the motion switch: ✦ moving, ✧ still (his pick, 2026-11-12)
+        id: motionBtn
         anchors { right: smallBtn.left; rightMargin: 14; verticalCenter: brand.verticalCenter }
         text: bridge.motion ? "✦" : "✧"
         color: motionArea.containsMouse ? C.peach : bridge.motion ? C.accent : C.faded
@@ -47,6 +52,7 @@ Item {
             cursorShape: Qt.PointingHandCursor
             onClicked: bridge.toggleMotion()
         }
+        Hint { hovered: motionArea.containsMouse; text: bridge.motion ? "Motion on: click to hold everything still" : "Motion off: click to bring it back" }
     }
     Text {  // shrink to the mini player (his ask, 2026-11-12)
         id: smallBtn
@@ -62,6 +68,7 @@ Item {
             cursorShape: Qt.PointingHandCursor
             onClicked: bridge.open("mini")
         }
+        Hint { hovered: smallArea.containsMouse; text: "Shrink to the mini player" }
     }
 
     // His order, with a Pinned box on top (his ask, 2026-11-06): drag a row anywhere by its
@@ -177,6 +184,8 @@ Item {
                     color: C.faded
                     opacity: 0.3 + row.hot * 0.6
                     font.pixelSize: 15
+                    HoverHandler { id: gripHover }
+                    Hint { hovered: gripHover.hovered && !side.dragging; text: "Drag to move it; drop it in Pinned to pin it" }
                 }
                 Text {
                     x: 30 + row.hot * 4
@@ -193,6 +202,8 @@ Item {
                     text: slot.waiting
                     color: C.accent
                     font { family: win.serif; pixelSize: 16; bold: true }
+                    HoverHandler { id: countHover }
+                    Hint { hovered: countHover.hovered; text: slot.waiting + " note" + (slot.waiting === 1 ? "" : "s") + " waiting to send" }
                 }
                 MouseArea {
                     anchors.fill: parent
@@ -236,6 +247,7 @@ Item {
                         cursorShape: Qt.PointingHandCursor
                         onClicked: bridge.togglePin(slot.slug)
                     }
+                    Hint { hovered: fa.containsMouse; text: slot.pinned ? "Pinned: click to unpin" : "Click to pin it to the top" }
                 }
             }
         }
@@ -258,6 +270,7 @@ Item {
         Text {
             width: parent.width
             wrapMode: Text.Wrap
+            visible: side.height > 620  // a short window keeps the room for the projects
             text: bridge.sign.why
             color: C.faded
             font { family: win.serif; pixelSize: 14 }

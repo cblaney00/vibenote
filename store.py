@@ -355,6 +355,15 @@ class Store:
         self.notes[slug] = [n for n in self.all(slug) if n["id"] != note_id]
         self.save()
 
+    def restore(self, slug: str, note: dict, index: int):
+        """Undo: put a note back exactly as it was, where it was, wherever it is now (a moved
+        note leaves the project it went to)."""
+        for other in self.notes:
+            self.notes[other] = [n for n in self.notes[other] if n["id"] != note["id"]]
+        mine = self.notes.setdefault(slug, [])
+        mine.insert(max(0, min(index, len(mine))), dict(note))
+        self.save()
+
     def move(self, slug: str, note_id: str, to_slug: str):
         note = next((n for n in self.all(slug) if n["id"] == note_id), None)
         if note and to_slug != slug:

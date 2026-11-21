@@ -47,6 +47,18 @@ class StoreTest(unittest.TestCase):
         s.edit("r62d", a["id"], "  ")  # emptied = deleted
         self.assertEqual(s.get("r62d"), [])
 
+    def test_undo_puts_a_note_back_where_it_was(self):
+        s = Store(self.path)
+        a, b, c = (s.add("r62d", t) for t in "abc")
+        before = dict(b)
+        s.delete("r62d", b["id"])
+        s.restore("r62d", before, 1)
+        self.assertEqual([n["text"] for n in s.get("r62d")], ["a", "b", "c"])
+        s.move("r62d", a["id"], "glade")  # undoing a move takes it out of the other project
+        s.restore("r62d", {**a}, 0)
+        self.assertEqual([n["text"] for n in Store(self.path).get("r62d")], ["a", "b", "c"])
+        self.assertEqual(s.get("glade"), [])
+
     def test_first_look_imports_the_whole_list(self):
         s = Store(self.path)
         self.assertTrue(s.sync("r62d", ["Small bullets", "Desert map"], ["Headshots", "Barricades"]))

@@ -78,3 +78,9 @@ triggers are gentler (0.6–0.9).
 
 Pages are kept per project in the bridge, and matching is memoised/set-based; see CLAUDE.md
 "Silk speed". QML reads `bridge.page` in many bindings, so its getter must stay a cache lookup.
+
+## Clean-up pass (2026-11-20)
+
+Undo, hover hints (`Hint.qml`), Esc/Ctrl+N keys and several fixes; see CLAUDE.md "Clean-up
+pass". Testing in xvfb: find the window with `xdotool search --onlyvisible --name VibeNote`
+(the `--class` search finds nothing).

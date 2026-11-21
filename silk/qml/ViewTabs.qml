@@ -30,6 +30,12 @@ Row {
                 cursorShape: Qt.PointingHandCursor
                 onClicked: bridge.setLayout(modelData[0])
             }
+            Hint {
+                hovered: a.containsMouse
+                text: ({ list: "Every note in a list, with its ticks", board: "Columns of cards: drag one to another column",
+                         sky: "The notes in perspective: scroll to fly through", timeline: "A diary of your notes, newest day first",
+                         compact: "One short line per note" })[modelData[0]]
+            }
         }
     }
 }

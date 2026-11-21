@@ -120,6 +120,14 @@ Item {
                     color: card.note.kind === "worked" || card.note.kind === "review" ? C.jade : C.faded
                     font { family: win.serif; pixelSize: 18 }
                 }
+                HoverHandler { id: markHover }
+                Hint {
+                    hovered: markHover.hovered
+                    text: card.waiting ? (card.sendOn ? "Ticked for Send: goes on the to-do list when you press Send"
+                                                      : "Not ticked for Send: click to tick it")
+                          : ({ sent: "On the project's to-do list", worked: "Claude worked on it; not finished yet",
+                               later: "In Later: kept off the to-do list", review: "Done on a branch, waiting for Lando" })[card.note.kind] || ""
+                }
                 MouseArea {
                     id: tickArea
                     anchors.fill: parent
@@ -159,11 +167,17 @@ Item {
                 MouseArea {
                     id: workArea
                     anchors.fill: parent
+                    hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
                         card.workOn = !card.workOn
                         bridge.tick(card.note.id, "work")
                     }
+                }
+                Hint {
+                    hovered: workArea.containsMouse
+                    text: card.workOn ? "Ticked for Work: Claude starts on it when you press Work"
+                                      : "Not ticked for Work: click to tick it"
                 }
             }
 
@@ -285,6 +299,12 @@ Item {
                     text: card.note.tokens
                     color: card.note.size >= 6 ? C.accent : card.note.size >= 3 ? C.faded : C.jade
                     font { family: win.serif; pixelSize: 15 }
+                    HoverHandler { id: tokHover }
+                    Hint {
+                        hovered: tokHover.hovered
+                        text: "VibeNote's guess of the tokens: " + (card.note.size >= 6 ? "a big change"
+                              : card.note.size >= 3 ? "a medium change" : "a small change")
+                    }
                 }
             }
         }

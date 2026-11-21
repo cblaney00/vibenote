@@ -245,7 +245,20 @@ shrinks the whole app to the mini; the startup loop hands between the two until 
 simply closed. `--view usage|tips` opens the whole app on that page. Silk has the same:
 `silk/qml/Mini.qml` (city strip, breathing dot, `LiveBars`, the toggle),
 ◱/◳ to switch (`bridge.open` → `app.py`'s `show`, which loads the new window before closing
-the old and quits only when he closes one); its Usage › opens the Tk page for now.
+the old and quits only when he closes one); its Usage › opens Silk's own usage page.
+
+**Clean-up pass** (his ask, 2026-11-20: "find issues ... mouse hover everything, clean up the
+app, add basic features"; no questions). Silk got: **Undo** — Delete, Move and Later say
+"Deleted · Undo" in the bottom line for 9 s; Undo or Ctrl+Z puts the note back where it was
+(`Bridge._keep_for_undo`/`undo`, `Store.restore`; a sent note put in Later goes back on the
+list). **Hover hints** (`silk/qml/Hint.qml` + the one `hintBox` in Main.qml, `win.showHint`):
+✦, ◱, ⚑/⚐, ⠿, the waiting count, the Send/Work beads, the → ◐ ◦ ✓ marks, the "~29k" tag, the
+view tabs. **Keys**: Esc closes the menu, then the token warning, then Find/Summary/usage;
+Ctrl+N goes to the note box. Fixed: clicks on the Find box went to the hidden note box (a
+stray note on Enter); `info`, `everyNote` and `live` getters rebuilt on every read (now kept,
+`_info`/`_every`/`_live`); `setRefresh` crash; section lines ran through "Send Work"; the ✦
+sat on the name in a narrow sidebar; a short window (<640 px) gets a lower sky and no sign
+reason line; errors printed on quit (`sip.delete(engine)`).
 
 **Find** (Ctrl+F, his ask): a box over the page; every note in every project (and its
 snapshot) with all the words, lit up; click one to open its project; Esc goes back.

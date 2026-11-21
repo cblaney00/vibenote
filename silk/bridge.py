@@ -28,10 +28,11 @@ class Bridge(QObject):
     liveChanged = pyqtSignal()
     countsChanged = pyqtSignal()
     smallChanged = pyqtSignal()
-    # which window to show next: "notes" (the whole app) or "mini"; "usage" opens the Tk
-    # VibeNote's page until Silk has its own (docs/silk-rebuild.md, step 3)
+    # which window to show next: "notes" (the whole app), "mini", or "usage" / "tips" (the
+    # whole app on its Claude usage page)
     wantWindow = pyqtSignal(str)
     said = pyqtSignal(str)
+    undoChanged = pyqtSignal()
     busyChanged = pyqtSignal()
     layoutChanged = pyqtSignal()
     viewChanged = pyqtSignal()
@@ -44,6 +45,10 @@ class Bridge(QObject):
         # Each project's page, built once and kept until its notes change: the QML reads
         # bridge.page in several places, and R62D's took 0.4 s to build (2026-11-13)
         self._pages = {}
+        self._every = {}  # the same for everyNote (Board, Sky, Timeline, Compact)
+        self._info = None  # the usage / Find / Summary page being shown, built once
+        self._live = {"name": "", "bars": []}
+        self._undo = None  # the last Delete / Move / Later, to put back (Ctrl+Z)
         self.store = Store()
         self.guess = sender.TokenGuess(sender.load_usage())
         self.projects = projects.find_projects()
@@ -74,6 +79,7 @@ class Bridge(QObject):
     def _live_tick(self):
         # Lando's VibeNote fetches his own numbers (for next time's bars), like the Tk one
         threading.Thread(target=sender.refresh_own_usage, daemon=True).start()
+        self._live = self._read_live()
         self.liveChanged.emit()
 
     # --- reading ------------------------------------------------------------------
@@ -118,6 +124,9 @@ class Bridge(QObject):
 
     def _changed(self):
         self._pages.clear()
+        self._every.clear()
+        if self._view:
+            self._view_changed()
         self.projectsChanged.emit()
         self.pageChanged.emit()
         self.countsChanged.emit()
@@ -262,6 +271,11 @@ class Bridge(QObject):
         p = self.current
         if p is None:
             return []
+        if p.slug not in self._every:
+            self._every[p.slug] = self._every_note(p)
+        return self._every[p.slug]
+
+    def _every_note(self, p):
         st = self.store
         sent = st.get(p.slug, "sent")
         done = st.get(p.slug, "done")
@@ -330,7 +344,10 @@ class Bridge(QObject):
 
     @pyqtProperty("QVariantMap", notify=liveChanged)
     def live(self):
-        """The two bars Claude's /usage shows."""
+        """The two bars Claude's /usage shows (read from the file every 30 s, not per look)."""
+        return self._live
+
+    def _read_live(self):
         live = sender.load_live_usage()
         if not live:
             return {"name": "", "bars": []}
@@ -389,6 +406,8 @@ class Bridge(QObject):
     # --- changing -------------------------------------------------------------------
 
     def _note(self, note_id):
+        if self.current is None:
+            return None
         return next((n for n in self.store.all(self.current.slug) if n["id"] == note_id), None)
 
     @pyqtSlot(str)
@@ -396,7 +415,7 @@ class Bridge(QObject):
         self.current = next((p for p in self.projects if p.slug == slug), self.current)
         if self._view:
             self._view = ""
-            self.viewChanged.emit()
+            self._view_changed()
         # only the picked project changed: its kept page (if any) shows at once
         self.projectsChanged.emit()
         self.pageChanged.emit()
@@ -423,13 +442,59 @@ class Bridge(QObject):
 
     @pyqtSlot(str, str)
     def editNote(self, note_id, text):
+        if self._note(note_id) is None:
+            return
         if " ".join(text.split()):
             self.store.edit(self.current.slug, note_id, " ".join(text.split()))
         self._changed()
 
     @pyqtSlot(str)
     def deleteNote(self, note_id):
+        if not self._keep_for_undo(note_id, "Deleted"):
+            return
         self.store.delete(self.current.slug, note_id)
+        self.said.emit("Deleted")
+        self._changed()
+
+    # --- Undo (Ctrl+Z, or "Undo" by the message): the last Delete, Move or Later ---------
+
+    def _keep_for_undo(self, note_id, what):
+        p = self.current
+        notes = self.store.all(p.slug) if p else []
+        at = next((i for i, n in enumerate(notes) if n["id"] == note_id), None)
+        if at is None:
+            return False
+        self._undo = {"slug": p.slug, "note": dict(notes[at]), "at": at, "what": what}
+        self.undoChanged.emit()
+        return True
+
+    @pyqtProperty(str, notify=undoChanged)
+    def undoText(self):
+        return self._undo["what"] if self._undo else ""
+
+    @pyqtSlot()
+    def forgetUndo(self):
+        if self._undo:
+            self._undo = None
+            self.undoChanged.emit()
+
+    @pyqtSlot()
+    def undo(self):
+        u, self._undo = self._undo, None
+        self.undoChanged.emit()
+        if not u:
+            return
+        p = next((x for x in self.projects if x.slug == u["slug"]), None)
+        if p is None:
+            return
+        if u["note"]["status"] == "sent":  # Later took it off the list: put it back on
+            try:
+                sender.add_to_list(p, [u["note"]["text"]])
+            except OSError as err:
+                self.said.emit(f"Couldn't put it back on the list: {err.strerror or err}.")
+                return
+        self.store.restore(p.slug, u["note"], u["at"])
+        self.said.emit("✓ Put back")
         self._changed()
 
     @pyqtSlot(str, str)
@@ -438,6 +503,7 @@ class Bridge(QObject):
         if note:
             self.store.tick(self.current.slug, [note_id], which, not note[which])
             self._pages.pop(self.current.slug, None)  # built again next time it is read
+            self._every.pop(self.current.slug, None)
             self.countsChanged.emit()  # the card already shows its tick
 
     @pyqtSlot()
@@ -461,6 +527,7 @@ class Bridge(QObject):
         note, p = self._note(note_id), self.current
         if note is None:
             return
+        self._keep_for_undo(note_id, "Put aside in Later")
         if note["status"] == "sent":
             try:
                 p.remove_from_todo(note["text"])
@@ -473,6 +540,8 @@ class Bridge(QObject):
 
     @pyqtSlot(str)
     def now(self, note_id):
+        if self._note(note_id) is None:
+            return
         self.store.now(self.current.slug, note_id)
         self.said.emit("Back in Waiting to send")
         self._changed()
@@ -544,8 +613,10 @@ class Bridge(QObject):
         if usage:
             self.guess = sender.TokenGuess(usage)
             self._pages.clear()  # the token guesses on every page changed
+            self._every.clear()
             if not self._editing and not self._busy:
                 self._changed()
+        self._live = self._read_live()
         self.liveChanged.emit()
         if tell:
             self.said.emit("✓ Organized · estimates up to date")
@@ -583,6 +654,7 @@ class Bridge(QObject):
     def moveNote(self, note_id, slug):
         to = next((p for p in self.projects if p.slug == slug), None)
         if to and self._note(note_id):
+            self._keep_for_undo(note_id, f"Moved to {to.title}")
             self.store.move(self.current.slug, note_id, to.slug)
             self.said.emit(f"Moved to {to.title}")
             self._changed()
@@ -685,11 +757,15 @@ class Bridge(QObject):
         if view == "summary" and self.current is None:
             return
         self._view = view if view in ("usage", "find", "summary") else ""
-        self.viewChanged.emit()
+        self._view_changed()
 
     @pyqtSlot(str)
     def setQuery(self, text):
         self._query = text
+        self._view_changed()
+
+    def _view_changed(self):
+        self._info = None
         self.viewChanged.emit()
 
     def _title_of(self, slug):
@@ -699,6 +775,12 @@ class Bridge(QObject):
 
     @pyqtProperty("QVariantMap", notify=viewChanged)
     def info(self):
+        """The page being shown, built once per change (the QML reads it in several places)."""
+        if self._info is None:
+            self._info = self._build_info()
+        return self._info
+
+    def _build_info(self):
         try:
             return {"usage": self._usage_page, "find": self._find_page,
                     "summary": self._summary_page}.get(self._view, lambda: {})()
@@ -781,12 +863,15 @@ class Bridge(QObject):
         if when is None:
             return "Couldn't read that; try like \u201cThu 11pm\u201d."
         accounts = sender.load_accounts()
+        name = None
         for a in accounts:
             if a["email"] == email:
                 a.update(when, guess=False)
                 name = a["name"]
+        if name is None:
+            return "That account isn't in VibeNote's list any more."
         sender.save_accounts(accounts)
-        self.viewChanged.emit()
+        self._view_changed()
         return f"✓ {name} refreshes {sender.refresh_text({**when})}"
 
     def _find_page(self):

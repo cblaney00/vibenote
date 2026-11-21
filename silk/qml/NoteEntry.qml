@@ -4,6 +4,7 @@ import QtQuick
 Item {
     id: entry
     height: Math.max(54, input.contentHeight + 30)
+    function focusInput() { input.forceActiveFocus() }
     Behavior on height { SpringAnimation { spring: 4; damping: 0.35 } }
     Rectangle {
         anchors.fill: parent

@@ -158,7 +158,11 @@ def main():
             app.quit()
 
         QTimer.singleShot(int(float(wait) * 1000), grab)
-    sys.exit(app.exec())
+    code = app.exec()
+    # close the windows while the bridge is still there (else each one complains on the way out)
+    from PyQt6 import sip
+    sip.delete(engine)
+    sys.exit(code)
 
 
 if __name__ == "__main__":

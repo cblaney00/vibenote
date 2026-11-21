@@ -57,10 +57,39 @@ Window {
         sequence: "Ctrl+F"
         onActivated: { bridge.setView("find"); findIn.text = ""; bridge.setQuery(""); findIn.forceActiveFocus() }
     }
+    // Esc closes what is on top: the menu, then the token warning, then Find / Summary / usage
     Shortcut {
         sequence: "Esc"
-        enabled: win.paged
-        onActivated: bridge.setView("")
+        enabled: popMenu.visible || warning.visible || win.paged
+        onActivated: {
+            if (popMenu.visible) popMenu.visible = false
+            else if (warning.visible) warning.close()
+            else bridge.setView("")
+        }
+    }
+    Shortcut {  // straight to the note box
+        sequence: "Ctrl+N"
+        onActivated: { if (win.paged) bridge.setView(""); entry.focusInput() }
+    }
+    Shortcut {  // put back the last Delete / Move / Later (not while typing: there it undoes the typing)
+        sequence: "Ctrl+Z"
+        enabled: bridge.undoText !== "" && !(win.activeFocusItem && win.activeFocusItem.readOnly === false)
+        onActivated: bridge.undo()
+    }
+
+    // the one hint box (Hint.qml): what a symbol does, just above it
+    function showHint(text, item) {
+        if (!item || !item.visible) return
+        hintText.text = text
+        var p = item.mapToItem(root, item.width / 2, 0)
+        hintBox.owner = item
+        hintBox.x = Math.max(8, Math.min(root.width - hintBox.width - 8, p.x - hintBox.width / 2))
+        var y = p.y - hintBox.height - 6
+        hintBox.y = y < 8 ? p.y + item.height + 6 : y
+        hintBox.opacity = 1
+    }
+    function hideHint(item) {
+        if (!item || hintBox.owner === item) { hintBox.opacity = 0; hintBox.owner = null }
     }
 
     function say(text) {
@@ -117,7 +146,7 @@ Window {
             Horizon {
                 id: horizon
                 anchors { left: parent.left; right: parent.right; top: parent.top }
-                height: 236
+                height: win.height < 640 ? 180 : 236  // a short window keeps more room for the notes
                 scroll: notes.contentY
             }
 
@@ -223,6 +252,7 @@ Window {
                 anchors { left: parent.left; right: parent.right; top: horizon.bottom }
                 anchors { leftMargin: page.pad; rightMargin: page.pad; topMargin: 6 }
                 visible: !win.paged || bridge.view === "find"
+                enabled: !win.paged  // under the Find box it only keeps the place
                 opacity: win.paged ? 0 : 1
             }
             Rectangle {  // the Find box sits where the note box is
@@ -231,6 +261,11 @@ Window {
                 radius: 12
                 color: Qt.rgba(0.04, 0.09, 0.07, 0.9)
                 border.color: C.accent
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.IBeamCursor
+                    onPressed: findIn.forceActiveFocus()
+                }
                 TextInput {
                     id: findIn
                     anchors { fill: parent; leftMargin: 18; rightMargin: 18 }
@@ -381,12 +416,36 @@ Window {
                 height: 46
                 Text {
                     id: status
-                    anchors { left: parent.left; right: organizeBtn.left; verticalCenter: parent.verticalCenter; rightMargin: 12 }
+                    anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                    width: Math.max(0, Math.min(implicitWidth, (win.paged ? parent.width : organizeBtn.x) - 12
+                                                - (undoLink.visible ? undoLink.width + 14 : 0)))
                     color: C.faded
                     elide: Text.ElideRight
                     font { family: win.serif; pixelSize: 16 }
                     Behavior on opacity { NumberAnimation { duration: 900 } }
-                    Timer { id: statusFade; interval: 6000; onTriggered: status.opacity = 0 }
+                    Timer {
+                        id: statusFade
+                        interval: bridge.undoText !== "" ? 9000 : 6000
+                        onTriggered: { status.opacity = 0; bridge.forgetUndo() }
+                    }
+                }
+                Text {  // put back the last Delete / Move / Later (or Ctrl+Z)
+                    id: undoLink
+                    anchors { left: status.right; leftMargin: 14; verticalCenter: parent.verticalCenter }
+                    visible: bridge.undoText !== "" && status.opacity > 0.05
+                    opacity: status.opacity
+                    text: "Undo"
+                    color: ul.containsMouse ? C.peach : C.accent
+                    font { family: win.serif; pixelSize: 16; underline: ul.containsMouse }
+                    MouseArea {
+                        id: ul
+                        anchors.fill: parent
+                        anchors.margins: -6
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: bridge.undo()
+                    }
+                    Hint { text: "Put it back (Ctrl+Z)"; hovered: ul.containsMouse }
                 }
                 SilkButton {
                     id: organizeBtn
@@ -420,5 +479,25 @@ Window {
 
         PopMenu { id: popMenu }
         TokenWarning { id: warning }
+
+        Rectangle {
+            id: hintBox
+            property Item owner: null
+            z: 80
+            visible: opacity > 0.01
+            opacity: 0
+            Behavior on opacity { NumberAnimation { duration: 160 } }
+            width: hintText.implicitWidth + 22
+            height: hintText.implicitHeight + 12
+            radius: 7
+            color: C.field
+            border.color: C.rule
+            Text {
+                id: hintText
+                anchors.centerIn: parent
+                color: C.ink
+                font { family: win.serif; pixelSize: 14 }
+            }
+        }
     }
 }
