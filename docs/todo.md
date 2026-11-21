@@ -5,6 +5,7 @@ when one is finished, tick it and move it to **Done**.
 
 ## To do
 
+- [ ] find issues with vibenote and fix them, dont ask me questions, look through it youself, mouse hover everything, clean up the app, add basic features
 
 ## Done
 
