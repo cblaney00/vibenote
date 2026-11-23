@@ -22,7 +22,17 @@ PREPARE=$(grep -o '/nix/store/[^ ]*-vibe-prepare' "$VIBE" | head -n1)
 field() { sed -n "s/^$1=//p" .vibe-project 2>/dev/null | head -n1; }
 kind=$(field kind)
 shared=$(field shared)
-[ -n "$shared" ] && [ -n "$GD_GUARD_HOOKS" ] && git config core.hooksPath "$GD_GUARD_HOOKS"
+# The main-guard hooks are only for shared games on the PR flow. Games he commits to main
+# (column 4 of vibe's SHARED_GAMES is 1) must not get them back, or he can't commit there.
+if [ -n "$shared" ]; then
+  tab=$(printf '\t')
+  to_main=$(grep -m1 "^\(SHARED_GAMES='\)\?$(field slug)$tab" "$VIBE" | awk -F'\t' '{ print $4 }')
+  if [ "$to_main" = 1 ]; then
+    git config --unset core.hooksPath 2>/dev/null || true
+  elif [ -n "$GD_GUARD_HOOKS" ]; then
+    git config core.hooksPath "$GD_GUARD_HOOKS"
+  fi
+fi
 
 if [ -n "$msg" ]; then
   echo "Opening Claude on $title with your notes from VibeNote."
