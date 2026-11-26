@@ -1288,14 +1288,14 @@ class VibeNote(tk.Tk):
 
     def _total(self, notes):
         """A section's token estimate: its notes' guesses added up (his ask, 2026-11-01)."""
-        return f"{sender.short_tokens(sum(self._tokens(n) for n in notes))} tokens"
+        return f"{sender.short_tokens(self._batch(notes))} tokens"
 
     def _group_totals(self, notes):
-        totals = {}
+        groups = {}
         for n in notes:
             if n.get("group"):
-                totals[n["group"]] = totals.get(n["group"], 0) + self._tokens(n)
-        return totals
+                groups.setdefault(n["group"], []).append(n)
+        return {g: self._batch(ns) for g, ns in groups.items()}
 
     def _group_heading(self, note, current, totals):
         """After Organize, a quiet heading over each group of related notes (his pick), with
@@ -1872,7 +1872,7 @@ class VibeNote(tk.Tk):
         w = sum(x["work"] for x in notes + sent)
         self.send_btn.set(f"Send {n} ticked" if n else "Send", enabled=bool(n))
 
-        total = sum(self._tokens(x) for x in notes + sent if x["work"])
+        total = self._batch([x for x in notes + sent if x["work"]])
         self.work_btn.set(f"Work on {w} · {sender.short_tokens(total)}  →" if w else "Work  →",
                           enabled=bool(w))
 
@@ -1926,6 +1926,21 @@ class VibeNote(tk.Tk):
         size = note["size"] if "size" in note else size_score(note["text"])
         project = self.current.slug if self.current else None
         return self.guess.tokens(size, datetime.now().astimezone(), project)
+
+    def _size_of(self, note):
+        return note["size"] if "size" in note else size_score(note["text"])
+
+    def _batch(self, notes):
+        """Several notes' guess, as one Work: never their guesses added up (2026-11-26)."""
+        slug = self.current.slug if self.current else None
+        return self.guess.batch([self._size_of(n) for n in notes],
+                                datetime.now().astimezone(), slug)
+
+    def _shares(self, notes):
+        """Each note's part of the batch guess, kept on it by Work."""
+        slug = self.current.slug if self.current else None
+        return self.guess.shares({n["id"]: self._size_of(n) for n in notes},
+                                 datetime.now().astimezone(), slug)
 
     def _relearn(self, again=True, then=None):
         """Every 5 minutes (and when he presses Organize): learn again from Claude's chats
@@ -2184,7 +2199,7 @@ class VibeNote(tk.Tk):
             return
         extra = (f", including {len(waiting)} note{'s' * (len(waiting) != 1)} not sent yet, "
                  "which get added to its list first" if waiting else "")
-        cost = sum(self._tokens(n) for n in chosen)
+        cost = self._batch(chosen)
         usage_text = self._usage_after(cost)
         fresh, why = sender.work_plan(p, self.guess.usage)
         if fresh:
@@ -2196,7 +2211,7 @@ class VibeNote(tk.Tk):
         if waiting and not self._send(p, waiting):
             return
         self.store.mark_worked(p.slug, [n["id"] for n in chosen],
-                               {n["id"]: self._tokens(n) for n in chosen})
+                               self._shares(chosen))
         items = [n["text"] for n in chosen]
         self.sending = "…"
         self.work_btn.set("Starting…", enabled=False)

@@ -17,6 +17,7 @@ ticked) and "work" (only ticked ones are given to Claude by Work; start unticked
 import json
 import os
 import re
+import threading
 import uuid
 from functools import lru_cache
 from datetime import date
@@ -105,6 +106,12 @@ _BIG, _MEDIUM, _SMALL = _phrases(BIG_WORDS), _phrases(MEDIUM_WORDS), _phrases(SM
 
 
 @lru_cache(maxsize=50000)
+def clean(text: str) -> str:
+    """A note as kept: one line, no control characters. A pasted escape sequence could end
+    Work's bracketed paste early and type the rest into the chat as keys (2026-11-26)."""
+    return " ".join("".join(c if c.isprintable() else " " for c in text).split())
+
+
 def size_score(text: str) -> float:
     """A rough guess at how many tokens a change will take: higher is bigger."""
     t = " ".join(text.lower().split())
@@ -280,7 +287,8 @@ class Store:
 
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
+        # its own spare file, so two saves at once can never trip over each other's
+        tmp = self.path.with_suffix(f".{os.getpid()}-{threading.get_ident()}.tmp")
         tmp.write_text(json.dumps({"notes": self.notes, "imported": self.imported,
                                    "order": self.order, "pinned": self.pinned,
                                    "settings": self.settings}, indent=2))
@@ -328,7 +336,7 @@ class Store:
     def add(self, slug: str, text: str) -> dict | None:
         if not text.strip():
             return None
-        note = {"id": new_id(), "text": " ".join(text.split()), "status": "waiting",
+        note = {"id": new_id(), "text": clean(text), "status": "waiting",
                 "added": today(), "send": True, "work": False}
         self.notes.setdefault(slug, []).append(note)
         self.save()
@@ -346,7 +354,7 @@ class Store:
             return self.delete(slug, note_id)
         for note in self.all(slug):
             if note["id"] == note_id:
-                note["text"] = " ".join(text.split())
+                note["text"] = clean(text)
                 if "size" in note:
                     note["size"] = size_score(note["text"])
         self.save()

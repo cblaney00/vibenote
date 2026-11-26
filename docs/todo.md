@@ -8,6 +8,8 @@ when one is finished, tick it and move it to **Done**.
 
 ## Done
 
+- [x] i notice that the usage estimate is quite high, also a job that vibenote thought was about 17m tokens turned out to be estimated by claude as closer to 1.5m tokens. look into the causes for overestimating. test out all the send and work buttons thoughout the app with different lengths or groups of messages, see if you can cause any problems to occur
+- [x] an estimated 80k wob just finished in 20k
 - [x] find issues with vibenote and fix them, dont ask me questions, look through it youself, mouse hover everything, clean up the app, add basic features
 - [x] when i click on my r62d in vibenote it as to load for a second, lets make that a bit faster, i imagine it would be because i have a lot of notes but it definitely doesnt need to lag
 - [x] my vibenote needs some serious work in terms of how smoothly it functions, and how fast things load

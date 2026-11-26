@@ -36,6 +36,30 @@ class StoreTest(unittest.TestCase):
     def test_blank_note_is_ignored(self):
         self.assertIsNone(Store(self.path).add("r62d", "   "))
 
+    def test_pasted_control_characters_go(self):
+        """An escape in a pasted note could cut Work's message to Claude short."""
+        note = Store(self.path).add("r62d", "end\x1b[201~paste\nnext line\tok 🌙")
+        self.assertEqual(note["text"], "end [201~paste next line ok 🌙")
+
+    def test_saves_at_once_never_clash(self):
+        """A note's snapshot used to save from a side thread while the next note saved."""
+        import threading
+        s = Store(self.path)
+        errors = []
+
+        def write(i):
+            try:
+                for j in range(30):
+                    s.save()
+            except OSError as err:
+                errors.append(err)
+        threads = [threading.Thread(target=write, args=(i,)) for i in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [])
+
     def test_edit_move_delete(self):
         s = Store(self.path)
         a = s.add("r62d", "a")

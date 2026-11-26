@@ -584,43 +584,64 @@ class TokenGuess:
     more of his limit (his ask, 2026-11-02: the estimate was getting cheaper in the busy
     hours, as it used to follow his own reply lengths by hour instead)."""
 
-    PER_POINT = 6_000  # before any Work batch has been measured
+    PER_POINT = 6_000  # before any Work batch has been measured: one point alone
     BUSY_GUESS = 1.25  # busy hours count this much more until his limit hits show it
     PLAN_ENOUGH = 3  # plan-mode Work batches needed before only they are learned from
+    GROWTH = 0.5  # how a batch's cost grows with its size, until enough batches show it
+    PRIOR = 3  # a project's own batches count against this many "average" ones
 
     def __init__(self, usage: dict | None):
+        import math
         from store import size_score
         self.usage = usage or {}
+
+        # A Work batch costs about A × (its summed size)^k: twice the notes is nowhere near
+        # twice the tokens (his batches: k ≈ 0.4; a 48-item R62D batch used 153k, where adding
+        # each note's guess said 3.8m — the "17m vs 1.5m" he caught, 2026-11-26). So guesses
+        # for several notes must go through batch(), never be summed. k comes from a log-log
+        # fit over all batches; A from the plan-mode ones once there are enough (how Work runs
+        # since 2026-11-06, his ask 2026-11-09). Each project's A is pulled toward the overall
+        # one, so two or three odd batches can't triple its guesses (VibeNote read ~80k for a
+        # note that used 20k).
+        batches = [b for b in self.usage.get("batches", []) if b.get("tokens", 0) > 0]
+        points = [math.log(self._size(b["items"], size_score)) for b in batches]
+        logs = [math.log(b["tokens"]) for b in batches]
+        self.growth = self.GROWTH
+        if len(batches) >= 5:
+            mx, my = sum(points) / len(points), sum(logs) / len(logs)
+            spread = sum((x - mx) ** 2 for x in points)
+            if spread:
+                slope = sum((x - mx) * (y - my) for x, y in zip(points, logs)) / spread
+                self.growth = min(max(slope, 0.3), 1.0)
+        planned = [b for b in batches if b.get("plan")]
+        self.plan_mode = len(planned) >= self.PLAN_ENOUGH
+        each = [(b.get("project"), y - self.growth * x, bool(b.get("plan")))
+                for b, x, y in zip(batches, points, logs)]
+        if self.plan_mode:
+            # a project with too few plan-mode batches of its own keeps its older ones
+            own_plan = {}
+            for p, _, plan in each:
+                own_plan[p] = own_plan.get(p, 0) + plan
+            each = [e for e in each if e[2] or own_plan.get(e[0], 0) < 2]
+            overall = [a for _, a, plan in each if plan]
+        else:
+            overall = [a for _, a, _ in each]
+        base = (sum(overall) / len(overall) if overall else math.log(self.PER_POINT))
+        self.per_point = math.exp(base)  # what one point alone costs
+        mine = {}
+        for p, a, _ in each:
+            if p:
+                mine.setdefault(p, []).append(a)
+        self.per_project = {p: math.exp((sum(a) + self.PRIOR * base) / (len(a) + self.PRIOR))
+                            for p, a in mine.items()}
+        self.learned = len(overall)
+        from datetime import datetime, timedelta
+
         def median(xs):
             xs = sorted(xs)
             return xs[len(xs) // 2] if xs else None
-
-        # Tokens per point of size, from each Work batch; per project too, since some
-        # projects cost more per change than others (VibeNote ~6.6k, R62D ~3k). Once there
-        # are enough batches run in plan mode (how Work runs since 2026-11-06), only those
-        # count, the older ones no longer being how Work goes (his ask, 2026-11-09).
-        batches = self.usage.get("batches", [])
-        planned = [b for b in batches if b.get("plan")]
-        self.plan_mode = len(planned) >= self.PLAN_ENOUGH
-        rates, plan_rates = {}, {}
-        for b in batches:
-            rate = b["tokens"] / max(sum(size_score(t) for t in b["items"]), 1)
-            rates.setdefault(b.get("project"), []).append(rate)
-            if b.get("plan"):
-                plan_rates.setdefault(b.get("project"), []).append(rate)
-        if self.plan_mode:
-            # a project with too few plan-mode batches of its own keeps its old rate
-            rates = {p: (plan_rates[p] if len(plan_rates.get(p, [])) >= 2 else rs)
-                     for p, rs in rates.items()}
-            everything = [r for rs in plan_rates.values() for r in rs]
-        else:
-            everything = [r for rs in rates.values() for r in rs]
-        self.per_point = median(everything) or self.PER_POINT
-        self.per_project = {p: median(rs) for p, rs in rates.items() if p}
-        self.learned = len(everything)
         # How much more a busy hour uses of his limit: a 5-hour limit filled up in busy hours
         # holds fewer tokens than one in quiet hours. Needs 2 of each to say.
-        from datetime import datetime, timedelta
         busy, quiet = [], []
         for f in self.usage.get("five_hour_fills", []):
             if not isinstance(f, dict) or not f.get("tokens"):
@@ -636,10 +657,29 @@ class TokenGuess:
         from datetime import datetime
         return self.busy_factor if is_busy(when or datetime.now().astimezone()) else 1.0
 
-    def tokens(self, size: float, when=None, project: str | None = None) -> int:
-        """when: the time it would run (now if not given)."""
+    @staticmethod
+    def _size(sizes, score=None) -> float:
+        """A batch's summed size; texts are scored, and every note counts at least half a point."""
+        return max(sum(max(score(s) if score else s, 0.5) for s in sizes), 0.5)
+
+    def batch(self, sizes, when=None, project: str | None = None) -> int:
+        """Tokens for doing these notes (their size scores) together in one Work."""
+        sizes = list(sizes)
+        if not sizes:
+            return 0
         rate = self.per_project.get(project, self.per_point)
-        return round(max(size, 0.5) * rate * self.factor(when))
+        return round(rate * self._size(sizes) ** self.growth * self.factor(when))
+
+    def tokens(self, size: float, when=None, project: str | None = None) -> int:
+        """One note on its own. when: the time it would run (now if not given)."""
+        return self.batch([size], when, project)
+
+    def shares(self, sizes: dict, when=None, project: str | None = None) -> dict:
+        """The batch guess for {id: size}, split across the notes by size (as actual_tokens
+        splits what a batch used), so "guessed" and "used" compare like with like."""
+        total = self.batch(sizes.values(), when, project)
+        points = sum(max(s, 0.5) for s in sizes.values()) or 1
+        return {k: round(total * max(s, 0.5) / points) for k, s in sizes.items()}
 
 
 _BATCH_INDEX: dict = {}

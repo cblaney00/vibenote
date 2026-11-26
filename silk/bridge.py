@@ -37,6 +37,9 @@ class Bridge(QObject):
     layoutChanged = pyqtSignal()
     viewChanged = pyqtSignal()
     _workEnded = pyqtSignal(str)  # from the side thread that hands the items to Claude
+    # a new note's snapshot, taken on a side thread but saved here: saving from that thread
+    # clashed with the next note's save when he wrote several quickly (2026-11-26)
+    _snapped = pyqtSignal(str, str, object)
     _learned = pyqtSignal(object, bool)  # usage re-read on a side thread; True: say so
 
     def __init__(self, lando=False):
@@ -62,6 +65,7 @@ class Bridge(QObject):
         self._view = ""  # "" (the notes), "usage", "find" or "summary"
         self._query = ""
         self._workEnded.connect(self._work_ended)
+        self._snapped.connect(self._apply_snapshot)
         self._learned.connect(self._apply_learned)
         # learn again from Claude's chats every 5 minutes, like the Tk app
         self._learn_timer = QTimer(self)
@@ -141,6 +145,21 @@ class Bridge(QObject):
         slug = self.current.slug if self.current else None
         return self.guess.tokens(size, datetime.now().astimezone(), slug)
 
+    def _size_of(self, note):
+        return note["size"] if "size" in note else size_score(note["text"])
+
+    def _batch(self, notes):
+        """Several notes' guess, as one Work: never their guesses added up (2026-11-26)."""
+        slug = self.current.slug if self.current else None
+        return self.guess.batch([self._size_of(n) for n in notes],
+                                datetime.now().astimezone(), slug)
+
+    def _shares(self, notes):
+        """Each note's part of the batch guess, kept on it by Work."""
+        slug = self.current.slug if self.current else None
+        return self.guess.shares({n["id"]: self._size_of(n) for n in notes},
+                                 datetime.now().astimezone(), slug)
+
     def _guessed_used(self, note):
         """" · guessed ~29k · used ~13k" for a note Claude worked on (his ask, 2026-11-09)."""
         parts = []
@@ -166,7 +185,7 @@ class Bridge(QObject):
                 "snap": sender.snapshot_line(note["snap"]) if note.get("snap") else ""}
 
     def _total(self, notes):
-        return sender.short_tokens(sum(self._tokens(n) for n in notes))
+        return sender.short_tokens(self._batch(notes))
 
     def _work_notes(self):
         p = self.current
@@ -234,7 +253,8 @@ class Bridge(QObject):
                 groups = {}
                 for n in notes:
                     if kind in ("waiting", "sent", "worked") and n.get("group"):
-                        groups[n["group"]] = groups.get(n["group"], 0) + self._tokens(n)
+                        groups.setdefault(n["group"], []).append(n)
+                groups = {g: self._batch(ns) for g, ns in groups.items()}
                 open_ = kind in ("waiting", "sent", "worked")
                 sections.append({
                     "key": key, "title": title, "count": len(notes),
@@ -436,9 +456,15 @@ class Bridge(QObject):
         def snap():
             found = sender.snapshot(p)
             if found:
-                self.store.set_snapshot(p.slug, note["id"], found)
+                self._snapped.emit(p.slug, note["id"], found)
 
         threading.Thread(target=snap, daemon=True).start()
+
+    def _apply_snapshot(self, slug, note_id, found):
+        self.store.set_snapshot(slug, note_id, found)
+        self._pages.pop(slug, None)
+        if self.current and self.current.slug == slug:
+            self.pageChanged.emit()
 
     @pyqtSlot(str, str)
     def editNote(self, note_id, text):
@@ -692,7 +718,7 @@ class Bridge(QObject):
         n = len(chosen)
         extra = (f", including {len(waiting)} note{'s' * (len(waiting) != 1)} not sent yet, "
                  "which get added to its list first" if waiting else "")
-        cost = sum(self._tokens(x) for x in chosen)
+        cost = self._batch(chosen)
         usage_text = sender.usage_after(self.guess.usage, cost)
         fresh, why = sender.work_plan(p, self.guess.usage)
         if fresh:
@@ -722,7 +748,7 @@ class Bridge(QObject):
                 return
             self.store.mark_sent(p.slug, [n["id"] for n in waiting])
         self.store.mark_worked(p.slug, [n["id"] for n in chosen],
-                               {n["id"]: self._tokens(n) for n in chosen})
+                               self._shares(chosen))
         items = [n["text"] for n in chosen]
         usage = self.guess.usage
         self._busy = True

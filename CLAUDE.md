@@ -102,14 +102,19 @@ context too gave millions, which he called "crazy high", 2026-11-01), per hour o
 Work batch (from its "Please work on these items" message to the next one / chat end; these
 run long, so the median is used). `vibenote --collect-usage` (as root) saves that to
 `~/.local/share/vibenote/usage.json`; the Work message asks Claude to run it when a batch is
-done, and VibeNote re-reads it every 5 min on a side thread. `TokenGuess`: tokens = size
-score × learned tokens per point (median over that project's batches, else all) × the busy-hours
-factor: during Claude's busy hours (`is_busy`: weekday 5–11am Pacific = 8am–2pm his time) the
+done, and VibeNote re-reads it every 5 min on a side thread. `TokenGuess`: a batch costs
+`A × (its summed size score)^k` × the busy-hours factor — k learned by a log-log fit over his
+batches (≈0.4: twice the notes is far less than twice the tokens), A per project pulled toward
+the overall one (`PRIOR`), so 2–3 odd batches can't inflate it. **Several notes are always
+guessed together (`guess.batch`, the windows' `_batch`), never by adding up each note's guess**:
+that made a 48-item batch read 3.8m when it used 153k (his catch, 2026-11-26: "17m … closer
+to 1.5m"; backtest: 3.5× too high on average before, ~1.0× after). Work keeps each note's
+share of the batch guess (`guess.shares`) as `expected`. The busy-hours factor: during Claude's busy hours (`is_busy`: weekday 5–11am Pacific = 8am–2pm his time) the
 same work uses up more of his limit, so estimates count more — learned from his 5-hour limit
 hits (median quiet fill ÷ median busy fill, by each window's middle, ≥2 of each, 1.0–2.0),
 `BUSY_GUESS` 1.25 until then. (It used to follow his own reply lengths by hour, which made busy
 hours *cheaper*; he caught that, 2026-11-02 — don't bring it back.) Tags read "~29k", coloured by size (the word went, 2026-11-06); the Work button
-shows the total for the ticked items, and each section and group heading its own sum
+shows the batch guess for the ticked items, and each section and group heading its own
 (his ask, 2026-11-01). The sign (sidebar bottom, `good_time`): *Not a great
 time* on weekday 5–11am Pacific (Anthropic made 5-hour limits run out faster then in March
 2026; later reports say not for Claude Code, so it says "may") (it says how much more estimates count); else *Good*. Time of day only: it used to turn
@@ -442,3 +447,12 @@ the window fired for every child widget — now a bindtag only the window has. O
 ~0.5 s. A pulsing pixel notepad (`Loading`, his pick: the icon, page dimmed) covers the
 window while it builds, at least 0.5 s so it never flickers. Never bind `<Configure>` per
 note or on the root window again.
+
+**Send / Work stress test** (his ask, 2026-11-26): 73 notes (blank, 5000 characters, line
+breaks, `- [ ]`, `## Done`, quotes, emoji, escapes) through Send and Work in a plain project, one
+with no to-do file and a shared game's "Blaney's list": all reached the list in the right
+section, came back as sent, and were read back from the Work message by `collect_usage`. Two
+fixes: Silk saved a note's snapshot from its side thread, clashing with the next note's save
+(crash) — it is saved on the main thread now (`_snapped`), and each save uses its own spare
+file; and notes drop control characters (`store.clean`), as an escape could end Work's
+bracketed paste early.
